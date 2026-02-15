@@ -5,6 +5,7 @@ use std::path::Path;
 use futures_util::StreamExt as _;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
+use tauri::{AppHandle, Emitter as _};
 
 use crate::config::{with_config_mut, InstalledVersion};
 use crate::error::{AppError, Result};
@@ -14,8 +15,59 @@ use crate::validation::resolve_version_zip_path;
 
 const USER_AGENT: &str = "astrbot-launcher";
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DownloadProgress {
+    pub id: String,
+    pub downloaded: u64,
+    pub total: Option<u64>,
+    /// Backend-computed progress percentage (0-100). `None` means unknown.
+    pub progress: Option<u8>,
+    pub step: String,
+    pub message: String,
+}
+
+pub struct DownloadOptions<'a> {
+    pub app_handle: &'a AppHandle,
+    pub id: &'a str,
+}
+
+pub fn emit_download_progress(
+    opts: &DownloadOptions,
+    downloaded: u64,
+    total: Option<u64>,
+    progress: Option<u8>,
+    step: &str,
+    message: &str,
+) {
+    let _ = opts.app_handle.emit(
+        "download-progress",
+        DownloadProgress {
+            id: opts.id.to_string(),
+            downloaded,
+            total,
+            progress,
+            step: step.to_string(),
+            message: message.to_string(),
+        },
+    );
+}
+
+fn compute_percent_0_99(downloaded: u64, total: Option<u64>) -> Option<u8> {
+    let t = total?;
+    if t == 0 {
+        return Some(0);
+    }
+    let p = (downloaded.saturating_mul(99)).saturating_div(t);
+    Some(p.min(99) as u8)
+}
+
 /// Download a file from `url` and stream it to `dest`.
-pub async fn download_file(client: &Client, url: &str, dest: &Path) -> Result<()> {
+pub async fn download_file(
+    client: &Client,
+    url: &str,
+    dest: &Path,
+    opts: Option<&DownloadOptions<'_>>,
+) -> Result<()> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(e.to_string()))?;
     }
@@ -31,6 +83,22 @@ pub async fn download_file(client: &Client, url: &str, dest: &Path) -> Result<()
         return Err(AppError::network(resp.status().to_string()));
     }
 
+    let total = resp.content_length();
+    let mut downloaded: u64 = 0;
+    let mut last_emit = std::time::Instant::now();
+    let mut last_percent: u64 = 0;
+
+    if let Some(o) = opts {
+        emit_download_progress(
+            o,
+            0,
+            total,
+            compute_percent_0_99(0, total),
+            "downloading",
+            "开始下载",
+        );
+    }
+
     let mut file = fs::File::create(dest).map_err(|e| AppError::io(e.to_string()))?;
 
     let mut stream = resp.bytes_stream();
@@ -39,6 +107,47 @@ pub async fn download_file(client: &Client, url: &str, dest: &Path) -> Result<()
         let chunk = chunk.map_err(|e| AppError::network(e.to_string()))?;
         file.write_all(&chunk)
             .map_err(|e| AppError::io(e.to_string()))?;
+
+        downloaded += chunk.len() as u64;
+
+        if let Some(o) = opts {
+            let now = std::time::Instant::now();
+            let current_percent = total
+                .map(|t| {
+                    if t > 0 {
+                        downloaded.saturating_mul(99).saturating_div(t)
+                    } else {
+                        0
+                    }
+                })
+                .unwrap_or(0);
+            if now.duration_since(last_emit).as_millis() >= 100
+                || current_percent >= last_percent + 1
+            {
+                emit_download_progress(
+                    o,
+                    downloaded,
+                    total,
+                    compute_percent_0_99(downloaded, total),
+                    "downloading",
+                    "下载中",
+                );
+                last_emit = now;
+                last_percent = current_percent;
+            }
+        }
+    }
+
+    if let Some(o) = opts {
+        // Keep 100 reserved for the terminal "done" event.
+        emit_download_progress(
+            o,
+            downloaded,
+            total,
+            compute_percent_0_99(downloaded, total).or(Some(99)),
+            "downloading",
+            "下载完成",
+        );
     }
 
     Ok(())
@@ -80,7 +189,11 @@ pub async fn check_url(client: &Client, url: &str) -> Result<()> {
 }
 
 /// Download and register an AstrBot version archive.
-pub async fn download_version(client: &Client, release: &GitHubRelease) -> Result<()> {
+pub async fn download_version(
+    client: &Client,
+    release: &GitHubRelease,
+    app_handle: Option<&AppHandle>,
+) -> Result<()> {
     let version = &release.tag_name;
     let versions_dir = get_versions_dir();
     let zip_path = resolve_version_zip_path(version)?;
@@ -94,8 +207,18 @@ pub async fn download_version(client: &Client, release: &GitHubRelease) -> Resul
         }
     }
 
+    let opts = app_handle.map(|ah| DownloadOptions {
+        app_handle: ah,
+        id: version,
+    });
+
     let core_archive_url = get_source_archive_url(version);
-    download_file(client, &core_archive_url, &zip_path).await?;
+    download_file(client, &core_archive_url, &zip_path, opts.as_ref()).await?;
+
+    if let Some(o) = &opts {
+        let size = std::fs::metadata(&zip_path).map(|m| m.len()).ok();
+        emit_download_progress(o, size.unwrap_or(0), size, Some(100), "done", "下载完成");
+    }
 
     let zip_path_str = zip_path
         .to_str()

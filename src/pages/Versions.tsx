@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Card, Space, Tag, Typography, List, Drawer, Tooltip } from 'antd';
+import { Button, Card, Space, Tag, Typography, List, Drawer, Tooltip, Progress } from 'antd';
 import {
   DownloadOutlined,
   DeleteOutlined,
@@ -28,6 +28,7 @@ export default function Versions() {
   const operations = useAppStore((s) => s.operations);
   const startOperation = useAppStore((s) => s.startOperation);
   const finishOperation = useAppStore((s) => s.finishOperation);
+  const downloadProgress = useAppStore((s) => s.downloadProgress);
 
   const [detailRelease, setDetailRelease] = useState<GitHubRelease | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -94,6 +95,19 @@ export default function Versions() {
   const availableReleases = releases.filter((r) => !isInstalled(r.tag_name));
   const getInstalledRelease = (version: string) => releases.find((r) => r.tag_name === version);
 
+  const getProgressPercent = (id: string): number | undefined => {
+    const p = downloadProgress[id];
+    if (!p) return undefined;
+    if (typeof p.progress === 'number') return p.progress;
+    if (p.step === 'done') return 100;
+    return undefined;
+  };
+
+  const isDownloading = (id: string): boolean => {
+    const p = downloadProgress[id];
+    return !!p && (p.step === 'downloading' || p.step === 'extracting');
+  };
+
   return (
     <>
       <div
@@ -126,12 +140,24 @@ export default function Versions() {
               const reinstallKey = OPERATION_KEYS.reinstallComponent(comp.id);
               const isInstalling = operations[installKey] || false;
               const isReinstalling = operations[reinstallKey] || false;
+              const percent = getProgressPercent(comp.id);
+              const downloading = isDownloading(comp.id);
 
               return (
                 <List.Item
                   actions={
                     comp.installed
                       ? [
+                          downloading && (
+                            <Progress
+                              key="progress"
+                              type="line"
+                              size={[60, 4]}
+                              percent={percent}
+                              showInfo={false}
+                              style={{ marginRight: -8 }}
+                            />
+                          ),
                           <Tooltip title="重新安装" key="reinstall">
                             <Button
                               type="text"
@@ -140,8 +166,18 @@ export default function Versions() {
                               onClick={() => handleReinstallComponent(comp.id)}
                             />
                           </Tooltip>,
-                        ]
+                        ].filter(Boolean)
                       : [
+                          downloading && (
+                            <Progress
+                              key="progress"
+                              type="line"
+                              size={[60, 4]}
+                              percent={percent}
+                              showInfo={false}
+                              style={{ marginRight: -8 }}
+                            />
+                          ),
                           <Button
                             type="primary"
                             size="small"
@@ -152,7 +188,7 @@ export default function Versions() {
                           >
                             安装
                           </Button>,
-                        ]
+                        ].filter(Boolean)
                   }
                 >
                   <List.Item.Meta
@@ -234,10 +270,24 @@ export default function Versions() {
           }}
           renderItem={(release) => {
             const key = release.tag_name;
+            const opKey = OPERATION_KEYS.installVersion(key);
+            const percent = getProgressPercent(key);
+            const downloading = isDownloading(key);
+            const installing = operations[opKey] || false;
 
             return (
               <List.Item
                 actions={[
+                  downloading && (
+                    <Progress
+                      key="progress"
+                      type="line"
+                      size={[60, 4]}
+                      percent={percent}
+                      showInfo={false}
+                      style={{ marginRight: -8 }}
+                    />
+                  ),
                   <Tooltip title="详情" key="detail">
                     <Button
                       type="text"
@@ -252,11 +302,11 @@ export default function Versions() {
                     <Button
                       type="text"
                       icon={<DownloadOutlined />}
-                      loading={operations[OPERATION_KEYS.installVersion(key)]}
+                      loading={installing}
                       onClick={() => handleInstall(release)}
                     />
                   </Tooltip>,
-                ]}
+                ].filter(Boolean)}
               >
                 <List.Item.Meta
                   title={

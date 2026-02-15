@@ -182,20 +182,25 @@ pub fn is_instance_deployed(instance_id: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn install_component(state: State<'_, AppState>, component_id: String) -> Result<String> {
-    let id = component::ComponentId::from_str_id(&component_id)
-        .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
-    component::install_component(&state.client, id).await
-}
-
-#[tauri::command]
-pub async fn reinstall_component(
+pub async fn install_component(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     component_id: String,
 ) -> Result<String> {
     let id = component::ComponentId::from_str_id(&component_id)
         .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
-    component::reinstall_component(&state.client, id).await
+    component::install_component(&state.client, id, Some(&app_handle)).await
+}
+
+#[tauri::command]
+pub async fn reinstall_component(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    component_id: String,
+) -> Result<String> {
+    let id = component::ComponentId::from_str_id(&component_id)
+        .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
+    component::reinstall_component(&state.client, id, Some(&app_handle)).await
 }
 
 // === GitHub ===
@@ -208,8 +213,12 @@ pub async fn fetch_releases(state: State<'_, AppState>) -> Result<Vec<GitHubRele
 // === Version Management ===
 
 #[tauri::command]
-pub async fn install_version(state: State<'_, AppState>, release: GitHubRelease) -> Result<()> {
-    download::download_version(&state.client, &release).await
+pub async fn install_version(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    release: GitHubRelease,
+) -> Result<()> {
+    download::download_version(&state.client, &release, Some(&app_handle)).await
 }
 
 #[tauri::command]

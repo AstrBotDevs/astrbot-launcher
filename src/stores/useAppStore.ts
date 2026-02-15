@@ -11,6 +11,7 @@ import type {
   DeployProgress,
   DeployState,
   ComponentStatus,
+  DownloadProgress,
 } from '../types';
 import { getErrorMessage } from '../utils';
 import { MODAL_CLOSE_DELAY_MS } from '../constants';
@@ -31,6 +32,9 @@ interface AppState {
   // Deploy state
   deployState: DeployState | null;
 
+  // Download progress
+  downloadProgress: Record<string, DownloadProgress>;
+
   // Actions
   hydrateSnapshot: (snapshot: AppSnapshot) => void;
   refresh: () => Promise<void>;
@@ -42,6 +46,7 @@ interface AppState {
   startDeploy: (instanceName: string, type: 'start' | 'upgrade' | 'downgrade') => void;
   setDeployProgress: (progress: DeployProgress | null) => void;
   closeDeploy: () => void;
+  clearDownloadProgress: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -55,6 +60,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   initialized: false,
   operations: {},
   deployState: null,
+  downloadProgress: {},
 
   hydrateSnapshot: (snapshot: AppSnapshot) => {
     set({
@@ -153,11 +159,45 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeDeploy: () => {
     set({ deployState: null });
   },
+
+  clearDownloadProgress: (id: string) => {
+    set((state) => {
+      const next = { ...state.downloadProgress };
+      delete next[id];
+      return { downloadProgress: next };
+    });
+  },
 }));
 
 // Event listener management (module-level, outside React)
 let unlistenFns: UnlistenFn[] = [];
 let listenersInitialized = false;
+const downloadClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearDownloadProgressTimer(id: string) {
+  const timer = downloadClearTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    downloadClearTimers.delete(id);
+  }
+}
+
+function scheduleDownloadProgressClear(id: string) {
+  clearDownloadProgressTimer(id);
+  const timer = setTimeout(() => {
+    useAppStore.setState((state) => {
+      const current = state.downloadProgress[id];
+      if (!current || (current.step !== 'done' && current.step !== 'error')) {
+        return state;
+      }
+      const next = { ...state.downloadProgress };
+      delete next[id];
+      return { downloadProgress: next };
+    });
+    downloadClearTimers.delete(id);
+  }, MODAL_CLOSE_DELAY_MS);
+  downloadClearTimers.set(id, timer);
+}
 
 export async function initEventListeners() {
   if (listenersInitialized) return;
@@ -185,13 +225,30 @@ export async function initEventListeners() {
     }
   });
 
-  unlistenFns = [unlistenSnapshot, unlistenDeploy];
+  const unlistenDownload = await listen<DownloadProgress>('download-progress', (event) => {
+    const progress = event.payload;
+    useAppStore.setState((state) => ({
+      downloadProgress: { ...state.downloadProgress, [progress.id]: progress },
+    }));
+
+    if (progress.step === 'done' || progress.step === 'error') {
+      scheduleDownloadProgressClear(progress.id);
+    } else {
+      clearDownloadProgressTimer(progress.id);
+    }
+  });
+
+  unlistenFns = [unlistenSnapshot, unlistenDeploy, unlistenDownload];
 }
 
 export function cleanupEventListeners() {
   for (const fn of unlistenFns) {
     fn();
   }
+  for (const timer of downloadClearTimers.values()) {
+    clearTimeout(timer);
+  }
+  downloadClearTimers.clear();
   unlistenFns = [];
   listenersInitialized = false;
 }

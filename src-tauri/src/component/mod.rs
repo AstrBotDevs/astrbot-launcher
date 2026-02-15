@@ -9,6 +9,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use reqwest::Client;
+use tauri::AppHandle;
 
 use crate::config::load_config;
 use crate::error::{AppError, Result};
@@ -48,22 +49,22 @@ pub fn build_components_snapshot() -> ComponentsSnapshot {
 }
 
 /// Install a component by id, dispatching to the appropriate sub-module.
-pub async fn install_component(client: &Client, id: ComponentId) -> Result<String> {
+pub async fn install_component(client: &Client, id: ComponentId, app_handle: Option<&AppHandle>) -> Result<String> {
     match id {
         ComponentId::Python312 | ComponentId::Python310 => {
-            python::install_component(client, id).await
+            python::install_component(client, id, app_handle).await
         }
-        ComponentId::NodejsLts => nodejs::install_nodejs(client).await,
+        ComponentId::NodejsLts => nodejs::install_nodejs(client, app_handle).await,
     }
 }
 
 /// Reinstall a component by id, dispatching to the appropriate sub-module.
-pub async fn reinstall_component(client: &Client, id: ComponentId) -> Result<String> {
+pub async fn reinstall_component(client: &Client, id: ComponentId, app_handle: Option<&AppHandle>) -> Result<String> {
     match id {
         ComponentId::Python312 | ComponentId::Python310 => {
-            python::reinstall_component(client, id).await
+            python::reinstall_component(client, id, app_handle).await
         }
-        ComponentId::NodejsLts => nodejs::reinstall_nodejs(client).await,
+        ComponentId::NodejsLts => nodejs::reinstall_nodejs(client, app_handle).await,
     }
 }
 

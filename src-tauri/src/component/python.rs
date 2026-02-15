@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use reqwest::Client;
+use tauri::AppHandle;
 
 use crate::archive::extract_tar_gz_flat;
 use crate::config::load_config;
-use crate::download::download_file;
+use crate::download::{download_file, emit_download_progress, DownloadOptions};
 use crate::error::{AppError, Result};
 use crate::github::{fetch_python_releases, wrap_with_proxy};
 use crate::paths::{get_component_dir, get_python_exe_path};
@@ -43,20 +44,42 @@ pub fn get_python_for_version(version: &str) -> Result<PathBuf> {
 }
 
 /// Install a component if it is not already installed. Skips if already present.
-pub(super) async fn install_component(client: &Client, id: ComponentId) -> Result<String> {
+pub(super) async fn install_component(
+    client: &Client,
+    id: ComponentId,
+    app_handle: Option<&AppHandle>,
+) -> Result<String> {
     if is_component_installed(id) {
         return Ok(format!("{} 已安装", id.display_name()));
     }
 
     let target_dir = get_component_dir(id.dir_name());
-    let version = install_python_version(client, id.major_version(), &target_dir).await?;
+    let version = install_python_version(
+        client,
+        id.major_version(),
+        &target_dir,
+        app_handle,
+        id.dir_name(),
+    )
+    .await?;
     Ok(format!("已安装 {}: {}", id.display_name(), version))
 }
 
 /// Reinstall a component (always removes existing and re-downloads).
-pub(super) async fn reinstall_component(client: &Client, id: ComponentId) -> Result<String> {
+pub(super) async fn reinstall_component(
+    client: &Client,
+    id: ComponentId,
+    app_handle: Option<&AppHandle>,
+) -> Result<String> {
     let target_dir = get_component_dir(id.dir_name());
-    let version = install_python_version(client, id.major_version(), &target_dir).await?;
+    let version = install_python_version(
+        client,
+        id.major_version(),
+        &target_dir,
+        app_handle,
+        id.dir_name(),
+    )
+    .await?;
     Ok(format!("已重新安装 {}: {}", id.display_name(), version))
 }
 
@@ -82,6 +105,8 @@ async fn install_python_version(
     client: &Client,
     major_version: &str,
     target_dir: &PathBuf,
+    app_handle: Option<&AppHandle>,
+    component_id: &str,
 ) -> Result<String> {
     // If target directory exists but runtime is missing/corrupted, clean it first.
     if target_dir.exists() {
@@ -114,7 +139,16 @@ async fn install_python_version(
     std::fs::create_dir_all(target_dir)
         .map_err(|e| AppError::io(format!("Failed to create python dir: {}", e)))?;
 
-    download_file(client, &url, &archive_path).await?;
+    let opts = app_handle.map(|ah| DownloadOptions {
+        app_handle: ah,
+        id: component_id,
+    });
+
+    download_file(client, &url, &archive_path, opts.as_ref()).await?;
+
+    if let Some(o) = &opts {
+        emit_download_progress(o, 0, None, Some(99), "extracting", "正在解压");
+    }
 
     extract_tar_gz_flat(&archive_path, target_dir)?;
 
@@ -128,6 +162,10 @@ async fn install_python_version(
 
     if let Err(e) = std::fs::remove_file(&archive_path) {
         log::warn!("Failed to remove archive {:?}: {}", archive_path, e);
+    }
+
+    if let Some(o) = &opts {
+        emit_download_progress(o, 0, None, Some(100), "done", "安装完成");
     }
 
     Ok(python_version)

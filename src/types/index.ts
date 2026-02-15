@@ -124,6 +124,17 @@ export interface BackupInfo {
 // Deploy Types
 // ========================================
 
+export type DownloadStep = 'downloading' | 'extracting' | 'done' | 'error';
+
+export interface DownloadProgress {
+  id: string;
+  downloaded: number;
+  total: number | null;
+  progress: number | null; // 0-100, computed by backend
+  step: DownloadStep;
+  message: string;
+}
+
 export type DeployStep =
   | 'backup'
   | 'extract'

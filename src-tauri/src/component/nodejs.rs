@@ -1,9 +1,10 @@
 use reqwest::Client;
 use serde::Deserialize;
+use tauri::AppHandle;
 
 use crate::archive::{extract_tar_gz_flat, extract_zip_flat};
 use crate::config::load_config;
-use crate::download::{download_file, fetch_json};
+use crate::download::{download_file, emit_download_progress, fetch_json, DownloadOptions};
 use crate::error::{AppError, Result};
 use crate::paths::{get_component_dir, get_node_exe_path, get_npm_exe_path, get_npx_exe_path};
 use crate::platform::get_nodejs_os_arch;
@@ -35,21 +36,21 @@ pub fn is_nodejs_installed() -> bool {
 }
 
 /// Install Node.js LTS if not already installed.
-pub async fn install_nodejs(client: &Client) -> Result<String> {
+pub async fn install_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
     if is_nodejs_installed() {
         return Ok("Node.js (LTS) 已安装".to_string());
     }
-    let version = do_install_nodejs(client).await?;
+    let version = do_install_nodejs(client, app_handle).await?;
     Ok(format!("已安装 Node.js (LTS): {}", version))
 }
 
 /// Reinstall Node.js LTS (always removes existing and re-downloads).
-pub async fn reinstall_nodejs(client: &Client) -> Result<String> {
-    let version = do_install_nodejs(client).await?;
+pub async fn reinstall_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
+    let version = do_install_nodejs(client, app_handle).await?;
     Ok(format!("已重新安装 Node.js (LTS): {}", version))
 }
 
-async fn do_install_nodejs(client: &Client) -> Result<String> {
+async fn do_install_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
     let target_dir = get_component_dir("nodejs");
 
     // Clean existing directory if present
@@ -101,8 +102,18 @@ async fn do_install_nodejs(client: &Client) -> Result<String> {
         target_dir.join("node.tar.gz")
     };
 
+    let opts = app_handle.map(|ah| DownloadOptions {
+        app_handle: ah,
+        // Must match frontend component id (ComponentId::NodejsLts.dir_name() == "nodejs").
+        id: "nodejs",
+    });
+
     // Download
-    download_file(client, &download_url, &archive_path).await?;
+    download_file(client, &download_url, &archive_path, opts.as_ref()).await?;
+
+    if let Some(o) = &opts {
+        emit_download_progress(o, 0, None, Some(99), "extracting", "正在解压");
+    }
 
     // Extract
     if is_windows {
@@ -137,6 +148,10 @@ async fn do_install_nodejs(client: &Client) -> Result<String> {
     // Cleanup archive
     if let Err(e) = std::fs::remove_file(&archive_path) {
         log::warn!("Failed to remove archive {:?}: {}", archive_path, e);
+    }
+
+    if let Some(o) = &opts {
+        emit_download_progress(o, 0, None, Some(100), "done", "安装完成");
     }
 
     Ok(version.clone())
