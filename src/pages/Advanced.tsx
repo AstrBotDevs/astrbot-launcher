@@ -26,8 +26,12 @@ export default function Advanced() {
   // Source settings
   const [githubProxy, setGithubProxy] = useState('');
   const [pypiMirror, setPypiMirror] = useState('');
+  const [nodejsMirror, setNodejsMirror] = useState('');
+  const [npmRegistry, setNpmRegistry] = useState('');
   const githubSaving = operations[OPERATION_KEYS.advancedSaveGithubProxy] || false;
   const pypiSaving = operations[OPERATION_KEYS.advancedSavePypiMirror] || false;
+  const nodejsMirrorSaving = operations[OPERATION_KEYS.advancedSaveNodejsMirror] || false;
+  const npmRegistrySaving = operations[OPERATION_KEYS.advancedSaveNpmRegistry] || false;
   const [initialized, setInitialized] = useState(false);
 
   // Selected values
@@ -51,6 +55,8 @@ export default function Advanced() {
     if (config && !initialized) {
       setGithubProxy(config.github_proxy);
       setPypiMirror(config.pypi_mirror);
+      setNodejsMirror(config.nodejs_mirror);
+      setNpmRegistry(config.npm_registry);
       setInitialized(true);
     }
   }, [config, initialized]);
@@ -122,6 +128,34 @@ export default function Advanced() {
       await api.savePypiMirror(pypiMirror);
       await reloadSnapshot({ throwOnError: true });
       message.success('PyPI 镜像源已保存');
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      finishOperation(key);
+    }
+  };
+
+  const handleSaveNodejsMirror = async () => {
+    const key = OPERATION_KEYS.advancedSaveNodejsMirror;
+    startOperation(key);
+    try {
+      await api.saveNodejsMirror(nodejsMirror);
+      await reloadSnapshot({ throwOnError: true });
+      message.success('Node.js 镜像源已保存');
+    } catch (error) {
+      handleApiError(error);
+    } finally {
+      finishOperation(key);
+    }
+  };
+
+  const handleSaveNpmRegistry = async () => {
+    const key = OPERATION_KEYS.advancedSaveNpmRegistry;
+    startOperation(key);
+    try {
+      await api.saveNpmRegistry(npmRegistry);
+      await reloadSnapshot({ throwOnError: true });
+      message.success('npm 注册源已保存');
     } catch (error) {
       handleApiError(error);
     } finally {
@@ -406,6 +440,38 @@ export default function Advanced() {
                 placeholder="例如: https://pypi.tuna.tsinghua.edu.cn/simple"
               />
               <Button icon={<SaveOutlined />} loading={pypiSaving} onClick={handleSavePypiMirror}>
+                保存
+              </Button>
+            </Space.Compact>
+          </Form.Item>
+          <Form.Item label="Node.js 镜像源" extra="用于加速 Node.js 二进制下载，留空使用官方地址">
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={nodejsMirror}
+                onChange={(e) => setNodejsMirror(e.target.value)}
+                placeholder="例如: https://npmmirror.com/mirrors/node"
+              />
+              <Button
+                icon={<SaveOutlined />}
+                loading={nodejsMirrorSaving}
+                onClick={handleSaveNodejsMirror}
+              >
+                保存
+              </Button>
+            </Space.Compact>
+          </Form.Item>
+          <Form.Item label="npm 注册源" extra="用于加速 npm 包安装，留空使用官方源">
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={npmRegistry}
+                onChange={(e) => setNpmRegistry(e.target.value)}
+                placeholder="例如: https://registry.npmmirror.com"
+              />
+              <Button
+                icon={<SaveOutlined />}
+                loading={npmRegistrySaving}
+                onClick={handleSaveNpmRegistry}
+              >
                 保存
               </Button>
             </Space.Compact>

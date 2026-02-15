@@ -10,28 +10,13 @@ use crate::github::{fetch_python_releases, wrap_with_proxy};
 use crate::paths::{get_component_dir, get_python_exe_path};
 use crate::platform::find_python_asset_for_version;
 
-use super::types::{ComponentId, ComponentStatus, ComponentsSnapshot};
+use super::types::ComponentId;
 
 /// Check whether a single component is installed.
-pub fn is_component_installed(id: ComponentId) -> bool {
+pub(super) fn is_component_installed(id: ComponentId) -> bool {
     let dir = get_component_dir(id.dir_name());
     let exe = get_python_exe_path(&dir);
     exe.exists()
-}
-
-/// Build a snapshot of all component statuses.
-pub fn build_components_snapshot() -> ComponentsSnapshot {
-    let components = ComponentId::all()
-        .iter()
-        .map(|&id| ComponentStatus {
-            id: id.dir_name().to_string(),
-            installed: is_component_installed(id),
-            display_name: id.display_name().to_string(),
-            description: format!("{} 运行时", id.display_name()),
-        })
-        .collect();
-
-    ComponentsSnapshot { components }
 }
 
 /// Determine which component a given AstrBot version requires.
@@ -58,7 +43,7 @@ pub fn get_python_for_version(version: &str) -> Result<PathBuf> {
 }
 
 /// Install a component if it is not already installed. Skips if already present.
-pub async fn install_component(client: &Client, id: ComponentId) -> Result<String> {
+pub(super) async fn install_component(client: &Client, id: ComponentId) -> Result<String> {
     if is_component_installed(id) {
         return Ok(format!("{} 已安装", id.display_name()));
     }
@@ -69,7 +54,7 @@ pub async fn install_component(client: &Client, id: ComponentId) -> Result<Strin
 }
 
 /// Reinstall a component (always removes existing and re-downloads).
-pub async fn reinstall_component(client: &Client, id: ComponentId) -> Result<String> {
+pub(super) async fn reinstall_component(client: &Client, id: ComponentId) -> Result<String> {
     let target_dir = get_component_dir(id.dir_name());
     let version = install_python_version(client, id.major_version(), &target_dir).await?;
     Ok(format!("已重新安装 {}: {}", id.display_name(), version))

@@ -13,6 +13,8 @@ export const OPERATION_KEYS = {
 
   advancedSaveGithubProxy: 'adv:save-github-proxy',
   advancedSavePypiMirror: 'adv:save-pypi-mirror',
+  advancedSaveNodejsMirror: 'adv:save-nodejs-mirror',
+  advancedSaveNpmRegistry: 'adv:save-npm-registry',
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,
   advancedClearVenv: (instanceId: string) => `adv:venv-${instanceId}`,
   advancedClearPycache: (instanceId: string) => `adv:pycache-${instanceId}`,

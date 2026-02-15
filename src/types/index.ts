@@ -16,6 +16,8 @@ export interface AppConfig {
   installed_versions: InstalledVersion[];
   github_proxy: string;
   pypi_mirror: string;
+  nodejs_mirror: string;
+  npm_registry: string;
   close_to_tray: boolean;
   check_instance_update: boolean;
   persist_instance_state: boolean;

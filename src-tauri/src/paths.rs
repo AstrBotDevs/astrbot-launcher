@@ -1,7 +1,5 @@
 //! Centralized path utilities for the application.
 
-use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -107,6 +105,99 @@ pub fn get_python_exe_path(python_dir: &Path) -> PathBuf {
     }
 }
 
+/// Get the path to the Node.js executable for a standalone Node directory.
+pub fn get_node_exe_path(node_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        node_dir.join("node.exe")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        node_dir.join("bin").join("node")
+    }
+}
+
+/// Get the path to the npm executable for a standalone Node directory.
+pub fn get_npm_exe_path(node_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        node_dir.join("npm.cmd")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        node_dir.join("bin").join("npm")
+    }
+}
+
+/// Get the path to the npx executable for a standalone Node directory.
+pub fn get_npx_exe_path(node_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        node_dir.join("npx.cmd")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        node_dir.join("bin").join("npx")
+    }
+}
+
+/// Get the bin directory for a standalone Node directory.
+pub fn get_node_bin_dir(node_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        node_dir.to_path_buf()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        node_dir.join("bin")
+    }
+}
+
+/// Get the npm global install prefix directory (component-level, shared by all instances).
+pub fn get_nodejs_npm_prefix() -> PathBuf {
+    get_component_dir("nodejs")
+}
+
+/// Get the npm cache directory (component-level, shared by all instances).
+pub fn get_nodejs_npm_cache() -> PathBuf {
+    get_component_dir("nodejs").join(".npm_cache")
+}
+
+/// Get the shim scripts directory for Node.js.
+pub fn get_nodejs_shim_dir() -> PathBuf {
+    get_component_dir("nodejs").join("shims")
+}
+
+/// Get the bin directory under an npm prefix (where globally installed binaries go).
+pub fn get_npm_prefix_bin_dir(npm_prefix: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        npm_prefix.to_path_buf()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        npm_prefix.join("bin")
+    }
+}
+
+/// Get the node_modules directory under an npm prefix.
+pub fn get_npm_prefix_modules_dir(npm_prefix: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        npm_prefix.join("node_modules")
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        npm_prefix.join("lib").join("node_modules")
+    }
+}
+
 /// Get the Python executable path within a virtual environment.
 pub fn get_venv_python(venv_dir: &Path) -> PathBuf {
     #[cfg(target_os = "windows")]
@@ -119,14 +210,3 @@ pub fn get_venv_python(venv_dir: &Path) -> PathBuf {
     }
 }
 
-/// Build PATH as `venv bin/scripts + existing PATH`.
-pub fn build_venv_path(venv_python: &Path) -> Result<OsString> {
-    let venv_bin = venv_python
-        .parent()
-        .ok_or_else(|| AppError::io("Invalid venv python path"))?;
-    let mut paths = vec![venv_bin.to_path_buf()];
-    if let Some(existing_path) = env::var_os("PATH") {
-        paths.extend(env::split_paths(&existing_path).filter(|p| p.as_path() != venv_bin));
-    }
-    env::join_paths(paths).map_err(|e| AppError::io(format!("Failed to build venv PATH: {}", e)))
-}

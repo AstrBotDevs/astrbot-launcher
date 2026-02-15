@@ -31,6 +31,8 @@ export const api = {
   // ========================================
   saveGithubProxy: (githubProxy: string) => invoke<void>('save_github_proxy', { githubProxy }),
   savePypiMirror: (pypiMirror: string) => invoke<void>('save_pypi_mirror', { pypiMirror }),
+  saveNodejsMirror: (nodejsMirror: string) => invoke<void>('save_nodejs_mirror', { nodejsMirror }),
+  saveNpmRegistry: (npmRegistry: string) => invoke<void>('save_npm_registry', { npmRegistry }),
   saveCloseToTray: (closeToTray: boolean) => invoke<void>('save_close_to_tray', { closeToTray }),
   compareVersions: (a: string, b: string) => invoke<number>('compare_versions', { a, b }),
   saveCheckInstanceUpdate: (checkInstanceUpdate: boolean) =>

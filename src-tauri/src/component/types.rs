@@ -5,6 +5,7 @@ use serde::Serialize;
 pub enum ComponentId {
     Python312,
     Python310,
+    NodejsLts,
 }
 
 impl ComponentId {
@@ -13,6 +14,7 @@ impl ComponentId {
         match self {
             Self::Python312 => "python312",
             Self::Python310 => "python310",
+            Self::NodejsLts => "nodejs",
         }
     }
 
@@ -21,6 +23,7 @@ impl ComponentId {
         match self {
             Self::Python312 => "Python 3.12",
             Self::Python310 => "Python 3.10",
+            Self::NodejsLts => "Node.js (LTS)",
         }
     }
 
@@ -29,6 +32,7 @@ impl ComponentId {
         match self {
             Self::Python312 => "3.12",
             Self::Python310 => "3.10",
+            Self::NodejsLts => "lts",
         }
     }
 
@@ -37,13 +41,14 @@ impl ComponentId {
         match s {
             "python312" => Some(Self::Python312),
             "python310" => Some(Self::Python310),
+            "nodejs" => Some(Self::NodejsLts),
             _ => None,
         }
     }
 
     /// All known component ids.
     pub fn all() -> &'static [Self] {
-        &[Self::Python312, Self::Python310]
+        &[Self::Python312, Self::Python310, Self::NodejsLts]
     }
 }
 

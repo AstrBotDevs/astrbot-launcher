@@ -8,11 +8,11 @@ use tokio::process::Command;
 
 use super::crud::is_dashboard_enabled;
 use super::deploy::{deploy_instance, emit_progress};
+use crate::component;
 use crate::config::load_config;
 use crate::error::{AppError, Result};
 use crate::paths::{
-    build_venv_path, get_instance_core_dir, get_instance_venv_dir, get_venv_python,
-    is_instance_deployed,
+    get_instance_core_dir, get_instance_venv_dir, get_venv_python, is_instance_deployed,
 };
 use crate::process::{
     check_port_available, find_available_port, force_kill, graceful_shutdown, ProcessManager,
@@ -66,7 +66,15 @@ pub async fn start_instance(
     }
 
     // Build command with environment variables
-    let path_with_venv = build_venv_path(&venv_python)?;
+    let nodejs_env_vars = component::build_nodejs_env_vars();
+
+    // Generate shim scripts so sub-processes (e.g. Python calling npm) inherit
+    // the correct Node.js environment without relying on env var inheritance.
+    if !nodejs_env_vars.is_empty() {
+        component::generate_shims(&nodejs_env_vars)?;
+    }
+
+    let new_path = component::build_instance_path(&venv_python)?;
     let mut cmd = Command::new(&venv_python);
     cmd.arg(&main_py)
         .current_dir(&core_dir)
@@ -75,10 +83,15 @@ pub async fn start_instance(
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .env("VIRTUAL_ENV", &venv_dir)
-        .env("PATH", path_with_venv)
+        .env("PATH", new_path)
         .env_remove("PYTHONHOME")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    // Inject Node.js environment variables (NODE_PATH, NPM_CONFIG_*, etc.)
+    for (key, val) in &nodejs_env_vars {
+        cmd.env(key, val);
+    }
 
     #[cfg(target_os = "windows")]
     {

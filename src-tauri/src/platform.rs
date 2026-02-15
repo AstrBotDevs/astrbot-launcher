@@ -48,3 +48,20 @@ pub fn find_python_asset_for_version(
 pub fn is_macos() -> bool {
     OS == "macos"
 }
+
+/// Get the Node.js OS and architecture identifiers for the current platform.
+pub fn get_nodejs_os_arch() -> Result<(&'static str, &'static str), String> {
+    let os = match OS {
+        "linux" => "linux",
+        "macos" => "darwin",
+        "windows" => "win",
+        _ => return Err(format!("Unsupported OS for Node.js: {OS}")),
+    };
+    let arch = match ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "arm" => "armv7l",
+        _ => return Err(format!("Unsupported architecture for Node.js: {ARCH}")),
+    };
+    Ok((os, arch))
+}

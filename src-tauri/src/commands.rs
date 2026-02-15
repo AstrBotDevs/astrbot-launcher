@@ -132,6 +132,22 @@ pub async fn save_close_to_tray(close_to_tray: bool) -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn save_nodejs_mirror(nodejs_mirror: String) -> Result<()> {
+    with_config_mut(move |config| {
+        config.nodejs_mirror = nodejs_mirror;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub async fn save_npm_registry(npm_registry: String) -> Result<()> {
+    with_config_mut(move |config| {
+        config.npm_registry = npm_registry;
+        Ok(())
+    })
+}
+
+#[tauri::command]
 pub fn compare_versions(a: String, b: String) -> i32 {
     match (
         semver::Version::parse(a.trim_start_matches('v')),
