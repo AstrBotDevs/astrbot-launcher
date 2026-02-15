@@ -59,6 +59,12 @@ pub(super) fn graceful_signal(pid: u32) -> Result<()> {
 
 #[cfg(target_os = "windows")]
 pub fn force_kill(pid: u32) -> Result<()> {
+    // Check if process is still alive before attempting to kill
+    if !is_process_alive(pid) {
+        log::debug!("Process {} is not alive, skipping force kill", pid);
+        return Ok(());
+    }
+
     let output = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
         .output()
@@ -91,6 +97,12 @@ pub fn force_kill(pid: u32) -> Result<()> {
 pub fn force_kill(pid: u32) -> Result<()> {
     use nix::sys::signal::{kill, killpg, Signal};
     use nix::unistd::{getpgid, Pid};
+
+    // Check if process is still alive before attempting to kill
+    if !is_process_alive(pid) {
+        log::debug!("Process {} is not alive, skipping force kill", pid);
+        return Ok(());
+    }
 
     let target = Pid::from_raw(pid as i32);
     match getpgid(Some(target)) {
