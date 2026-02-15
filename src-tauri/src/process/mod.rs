@@ -4,17 +4,21 @@ mod control;
 mod health;
 mod manager;
 
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod libc_api;
 
 #[cfg(target_os = "windows")]
 pub(crate) mod win_api;
 
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-pub use control::{check_port_available, find_available_port, force_kill, graceful_shutdown};
+pub use control::{
+    can_signal_expected_process, check_port_available, find_available_port, force_kill,
+    graceful_shutdown, resolve_process_executable_path,
+};
 pub use manager::ProcessManager;
 
 /// Grace period before marking instance as disconnected (~2 minutes).
@@ -47,6 +51,7 @@ pub struct RuntimeEvent {
 #[derive(Debug, Clone)]
 pub struct InstanceProcess {
     pub pid: u32,
+    pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
     /// Whether the original child PID has exited (reported by `child.wait()`).
@@ -67,9 +72,15 @@ pub struct InstanceRuntimeSnapshot {
 }
 
 impl InstanceProcess {
-    pub(crate) fn new(pid: u32, port: u16, dashboard_enabled: bool) -> Self {
+    pub(crate) fn new(
+        pid: u32,
+        executable_path: PathBuf,
+        port: u16,
+        dashboard_enabled: bool,
+    ) -> Self {
         Self {
             pid,
+            executable_path,
             port,
             dashboard_enabled,
             pid_exited: false,

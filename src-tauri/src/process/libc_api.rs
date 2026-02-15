@@ -1,6 +1,8 @@
 //! Unix libc helpers for process management.
 
+use std::fs;
 use std::io;
+use std::path::PathBuf;
 
 pub fn to_pid_t(pid: u32) -> io::Result<libc::pid_t> {
     i32::try_from(pid)
@@ -52,5 +54,33 @@ pub fn killpg(pgid: libc::pid_t, sig: libc::c_int) -> io::Result<()> {
         Ok(())
     } else {
         Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
+    let proc_exe = PathBuf::from(format!("/proc/{pid}/exe"));
+    let path = fs::read_link(proc_exe).ok()?;
+
+    // psutil compatibility notes (trim garbage):
+    // - readlink() may include NUL-terminated garbage after the real path
+    // - some paths append " (deleted)"; strip it when that literal path doesn't exist
+    let s = path.to_string_lossy();
+    let s = s.split('\0').next().unwrap_or("");
+    if let Some(stripped) = s.strip_suffix(" (deleted)") {
+        if fs::metadata(stripped).is_err() {
+            return Some(PathBuf::from(stripped));
+        }
+    }
+
+    Some(PathBuf::from(s))
+}
+
+#[cfg(target_os = "macos")]
+pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
+    let raw_pid = to_pid_t(pid).ok()?;
+    match libproc::proc_pid::pidpath(raw_pid) {
+        Ok(path) if !path.is_empty() => Some(PathBuf::from(path)),
+        _ => None,
     }
 }

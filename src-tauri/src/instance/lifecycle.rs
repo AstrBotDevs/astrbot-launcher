@@ -15,7 +15,8 @@ use crate::paths::{
     get_instance_core_dir, get_instance_venv_dir, get_venv_python, is_instance_deployed,
 };
 use crate::process::{
-    check_port_available, find_available_port, force_kill, graceful_shutdown, ProcessManager,
+    can_signal_expected_process, check_port_available, find_available_port, force_kill,
+    graceful_shutdown, resolve_process_executable_path, ProcessManager,
 };
 use crate::validation::validate_instance_id;
 
@@ -99,7 +100,7 @@ pub async fn start_instance(
         cmd.creation_flags(CREATE_NO_WINDOW.0);
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         cmd.process_group(0);
     }
@@ -111,9 +112,29 @@ pub async fn start_instance(
     let pid = child
         .id()
         .ok_or_else(|| AppError::process("Failed to get process ID"))?;
+    let mut executable_path = None;
+    for _ in 0..10 {
+        executable_path = resolve_process_executable_path(pid);
+        if executable_path.is_some() {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+    }
+    let executable_path = executable_path.ok_or_else(|| {
+        AppError::process(format!(
+            "Failed to resolve executable path from control API for PID {}",
+            pid
+        ))
+    })?;
 
     // Store process info with port and dashboard_enabled
-    process_manager.set_process(instance_id, pid, port, dashboard_enabled);
+    process_manager.set_process(
+        instance_id,
+        pid,
+        executable_path.clone(),
+        port,
+        dashboard_enabled,
+    );
 
     let stdout = child
         .stdout
@@ -161,7 +182,10 @@ pub async fn start_instance(
         ))
         .await;
 
-        match process_manager.wait_for_startup(pid, port, 120).await {
+        match process_manager
+            .wait_for_startup(pid, port, &executable_path, 120)
+            .await
+        {
             Ok(()) => {
                 log::info!(
                     "Instance {} started (pid: {}, port: {})",
@@ -173,11 +197,20 @@ pub async fn start_instance(
                 Ok(port)
             }
             Err(e) => {
-                if let Err(kill_err) = force_kill(pid) {
+                // Avoid killing an unrelated process if PID got reused.
+                if can_signal_expected_process(pid, &executable_path) {
+                    if let Err(kill_err) = force_kill(pid) {
+                        log::warn!(
+                            "Failed to kill timed-out instance {}: {}",
+                            instance_id,
+                            kill_err
+                        );
+                    }
+                } else {
                     log::warn!(
-                        "Failed to kill timed-out instance {}: {}",
+                        "Skip killing timed-out instance {}: PID {} executable path mismatch (possible PID reuse)",
                         instance_id,
-                        kill_err
+                        pid
                     );
                 }
                 process_manager.remove(instance_id);
@@ -217,11 +250,20 @@ pub async fn start_instance(
             }
             _ => {
                 let e = "Instance startup timed out (120s)";
-                if let Err(kill_err) = force_kill(pid) {
+                // Avoid killing an unrelated process if PID got reused.
+                if can_signal_expected_process(pid, &executable_path) {
+                    if let Err(kill_err) = force_kill(pid) {
+                        log::warn!(
+                            "Failed to kill timed-out instance {}: {}",
+                            instance_id,
+                            kill_err
+                        );
+                    }
+                } else {
                     log::warn!(
-                        "Failed to kill timed-out instance {}: {}",
+                        "Skip killing timed-out instance {}: PID {} executable path mismatch (possible PID reuse)",
                         instance_id,
-                        kill_err
+                        pid
                     );
                 }
                 process_manager.remove(instance_id);
@@ -244,9 +286,19 @@ pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManage
         .ok_or_else(AppError::instance_not_running)?;
 
     let pid = info.pid;
-    tokio::task::spawn_blocking(move || graceful_shutdown(&[pid]))
-        .await
-        .map_err(|e| AppError::process(format!("Failed to wait for graceful shutdown: {}", e)))?;
+    if can_signal_expected_process(pid, &info.executable_path) {
+        tokio::task::spawn_blocking(move || graceful_shutdown(&[pid]))
+            .await
+            .map_err(|e| {
+                AppError::process(format!("Failed to wait for graceful shutdown: {}", e))
+            })?;
+    } else {
+        log::warn!(
+            "Skip stopping instance {}: PID {} executable path mismatch (possible PID reuse)",
+            instance_id,
+            pid
+        );
+    }
 
     Ok(())
 }

@@ -17,7 +17,7 @@ pub(super) struct QueuedSymlink {
     pub(super) resolved_target: PathBuf,
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn create_symlink(
     target: &Path,
     link_path: &Path,
@@ -45,7 +45,7 @@ fn create_symlink(
     result.map_err(|e| AppError::io(format!("failed to create symlink at {link_path:?}: {e}")))
 }
 
-#[cfg(not(any(unix, windows)))]
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn create_symlink(
     _target: &Path,
     _link_path: &Path,

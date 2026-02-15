@@ -1,9 +1,17 @@
 //! Platform-agnostic process control functions.
 
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use super::GRACEFUL_SHUTDOWN_TIMEOUT;
 use crate::error::{AppError, Result};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutablePathMatch {
+    Match,
+    Mismatch,
+    Unknown,
+}
 
 /// Check if a process is alive by PID.
 #[cfg(target_os = "windows")]
@@ -12,12 +20,112 @@ pub fn is_process_alive(pid: u32) -> bool {
 }
 
 /// Check if a process is alive by PID.
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn is_process_alive(pid: u32) -> bool {
     let Ok(raw_pid) = super::libc_api::to_pid_t(pid) else {
         return false;
     };
     super::libc_api::is_process_alive(raw_pid)
+}
+
+/// Normalize an executable path before storing or comparing.
+pub fn normalize_executable_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// Resolve executable path for a process PID and normalize it for comparisons.
+pub fn resolve_process_executable_path(pid: u32) -> Option<PathBuf> {
+    get_process_executable_path(pid).map(|path| normalize_executable_path(&path))
+}
+
+#[cfg(target_os = "windows")]
+fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
+    super::win_api::get_process_executable_path(pid)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
+    super::libc_api::get_process_executable_path(pid)
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn get_process_executable_path(_pid: u32) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(target_os = "windows")]
+fn normalize_windows_path_for_compare(path: &Path) -> String {
+    let value = path.to_string_lossy().replace('/', "\\");
+    let value = value.strip_prefix(r"\\?\").unwrap_or(&value);
+    value.to_ascii_lowercase()
+}
+
+#[cfg(target_os = "windows")]
+fn executable_paths_match(expected: &Path, actual: &Path) -> bool {
+    normalize_windows_path_for_compare(expected) == normalize_windows_path_for_compare(actual)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn executable_paths_match(expected: &Path, actual: &Path) -> bool {
+    expected == actual
+}
+
+fn check_executable_path_match(pid: u32, expected_executable_path: &Path) -> ExecutablePathMatch {
+    let expected = normalize_executable_path(expected_executable_path);
+    let Some(actual) =
+        get_process_executable_path(pid).map(|path| normalize_executable_path(&path))
+    else {
+        return ExecutablePathMatch::Unknown;
+    };
+
+    if executable_paths_match(&expected, &actual) {
+        ExecutablePathMatch::Match
+    } else {
+        ExecutablePathMatch::Mismatch
+    }
+}
+
+/// Monitoring semantics:
+/// - `PID alive + Match` => alive
+/// - `PID alive + Unknown` => alive (avoid false negatives from transient query failures)
+/// - `PID alive + Mismatch` => not alive (possible PID reuse)
+pub fn is_expected_process_alive(pid: u32, expected_executable_path: &Path) -> bool {
+    if !is_process_alive(pid) {
+        return false;
+    }
+
+    match check_executable_path_match(pid, expected_executable_path) {
+        ExecutablePathMatch::Match => true,
+        ExecutablePathMatch::Mismatch => false,
+        ExecutablePathMatch::Unknown => {
+            log::warn!(
+                "Failed to resolve executable path for PID {}, treating as alive for monitoring",
+                pid
+            );
+            true
+        }
+    }
+}
+
+/// Signal semantics:
+/// - only `PID alive + Match` is allowed
+/// - `Unknown` and `Mismatch` both deny signaling
+pub fn can_signal_expected_process(pid: u32, expected_executable_path: &Path) -> bool {
+    if !is_process_alive(pid) {
+        return false;
+    }
+
+    match check_executable_path_match(pid, expected_executable_path) {
+        ExecutablePathMatch::Match => true,
+        ExecutablePathMatch::Mismatch => false,
+        ExecutablePathMatch::Unknown => {
+            log::warn!(
+                "Failed to resolve executable path for PID {}, skipping signal for safety",
+                pid
+            );
+            false
+        }
+    }
 }
 
 /// Sends CTRL+C via a sidecar helper.
@@ -48,7 +156,7 @@ pub(super) fn graceful_signal(pid: u32) -> Result<()> {
 }
 
 /// Send a graceful shutdown signal to a process.
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(super) fn graceful_signal(pid: u32) -> Result<()> {
     let raw_pid = super::libc_api::to_pid_t(pid)
         .map_err(|e| AppError::process(format!("PID {pid} is out of range for pid_t: {e}")))?;
@@ -93,7 +201,7 @@ pub fn force_kill(pid: u32) -> Result<()> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn force_kill(pid: u32) -> Result<()> {
     // Check if process is still alive before attempting to kill
     if !is_process_alive(pid) {

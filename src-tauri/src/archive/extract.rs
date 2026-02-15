@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::error::{AppError, Result};
 
-#[cfg(unix)]
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn set_unix_permissions(path: &Path, mode: Option<u32>) -> Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
 
@@ -15,7 +15,7 @@ fn set_unix_permissions(path: &Path, mode: Option<u32>) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn set_unix_permissions(_path: &Path, _mode: Option<u32>) -> Result<()> {
     Ok(())
 }

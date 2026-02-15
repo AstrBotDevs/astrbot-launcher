@@ -1,13 +1,20 @@
 //! Windows native API helpers for process management.
 
-use windows::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, NO_ERROR, STILL_ACTIVE};
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt as _;
+use std::path::PathBuf;
+
+use windows::core::PWSTR;
+use windows::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER, NO_ERROR, STILL_ACTIVE,
+};
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
     MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 
 /// Maximum number of retries when the TCP table changes between size query and data fetch.
@@ -142,4 +149,37 @@ pub fn is_process_alive(pid: u32) -> bool {
             Err(_) => false,
         }
     }
+}
+
+/// Resolve executable path for a process via `QueryFullProcessImageNameW`.
+pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()? };
+    let mut capacity = 260u32;
+
+    let result = loop {
+        let mut path_buf = vec![0u16; capacity as usize];
+        let mut path_len = capacity;
+
+        let ok = unsafe {
+            QueryFullProcessImageNameW(handle, 0, PWSTR(path_buf.as_mut_ptr()), &mut path_len)
+                .is_ok()
+        };
+        if ok {
+            let exe = OsString::from_wide(&path_buf[..path_len as usize]);
+            break Some(PathBuf::from(exe));
+        }
+
+        let last_error = unsafe { GetLastError() };
+        if last_error != ERROR_INSUFFICIENT_BUFFER {
+            break None;
+        }
+
+        capacity = capacity.saturating_mul(2);
+        if capacity > 32768 {
+            break None;
+        }
+    };
+
+    let _ = unsafe { CloseHandle(handle) };
+    result
 }

@@ -1,13 +1,14 @@
 //! Instance process tracking and runtime monitoring.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
 use tokio::sync::broadcast;
 
-use super::control::{graceful_shutdown, is_process_alive};
+use super::control::{can_signal_expected_process, graceful_shutdown, is_expected_process_alive};
 use super::health::check_health;
 #[cfg(target_os = "windows")]
 use super::win_api::get_pid_on_port;
@@ -159,18 +160,25 @@ impl ProcessManager {
                 return true;
             }
 
-            is_process_alive(info.pid)
+            is_expected_process_alive(info.pid, &info.executable_path)
         } else {
             false
         }
     }
 
     /// Set the process info for an instance.
-    pub fn set_process(&self, instance_id: &str, pid: u32, port: u16, dashboard_enabled: bool) {
+    pub fn set_process(
+        &self,
+        instance_id: &str,
+        pid: u32,
+        executable_path: PathBuf,
+        port: u16,
+        dashboard_enabled: bool,
+    ) {
         let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         procs.insert(
             instance_id.to_string(),
-            InstanceProcess::new(pid, port, dashboard_enabled),
+            InstanceProcess::new(pid, executable_path, port, dashboard_enabled),
         );
         drop(procs);
         self.emit_runtime_event(instance_id, RuntimeEventReason::ProcessTracked);
@@ -219,7 +227,7 @@ impl ProcessManager {
         let now = Instant::now();
 
         // Get instances to check
-        let instances: Vec<(String, u16, u32, bool, Option<Instant>, bool)> = {
+        let instances: Vec<(String, u16, u32, PathBuf, bool, Option<Instant>, bool)> = {
             let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
             procs
                 .iter()
@@ -228,6 +236,7 @@ impl ProcessManager {
                         id.clone(),
                         info.port,
                         info.pid,
+                        info.executable_path.clone(),
                         info.dashboard_enabled,
                         info.next_check_at,
                         info.pid_exited,
@@ -239,9 +248,11 @@ impl ProcessManager {
         let mut results = HashMap::new();
         let mut stale_instances = Vec::new();
 
-        for (id, port, pid, dashboard_enabled, next_check_at, pid_exited) in instances {
+        for (id, port, pid, executable_path, dashboard_enabled, next_check_at, pid_exited) in
+            instances
+        {
             if !dashboard_enabled {
-                let alive = !pid_exited && is_process_alive(pid);
+                let alive = !pid_exited && is_expected_process_alive(pid, &executable_path);
 
                 if alive {
                     let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
@@ -277,14 +288,23 @@ impl ProcessManager {
                     #[cfg(target_os = "windows")]
                     if let Some(new_pid) = get_pid_on_port(port) {
                         if new_pid != info.pid {
-                            log::info!(
-                                "Instance {} PID updated: {} -> {} (port {})",
-                                id,
-                                info.pid,
-                                new_pid,
-                                port
-                            );
-                            info.pid = new_pid;
+                            if is_expected_process_alive(new_pid, &info.executable_path) {
+                                log::info!(
+                                    "Instance {} PID updated: {} -> {} (port {})",
+                                    id,
+                                    info.pid,
+                                    new_pid,
+                                    port
+                                );
+                                info.pid = new_pid;
+                            } else {
+                                log::warn!(
+                                    "Instance {} rejected PID update {} -> {}: executable path mismatch",
+                                    id,
+                                    info.pid,
+                                    new_pid
+                                );
+                            }
                         }
                     }
                     if info.failure_count >= 3 {
@@ -340,6 +360,7 @@ impl ProcessManager {
         &self,
         pid: u32,
         port: u16,
+        executable_path: &std::path::Path,
         timeout_secs: u64,
     ) -> std::result::Result<(), String> {
         let start = std::time::Instant::now();
@@ -348,7 +369,7 @@ impl ProcessManager {
         let max_interval = std::time::Duration::from_secs(2);
 
         loop {
-            if !is_process_alive(pid) {
+            if !is_expected_process_alive(pid, executable_path) {
                 return Err("Instance process exited".to_string());
             }
             if check_health(&self.http_client, port).await {
@@ -388,7 +409,20 @@ impl ProcessManager {
             );
         }
 
-        let pids: Vec<u32> = entries.iter().map(|(_, info)| info.pid).collect();
+        let pids: Vec<u32> = entries
+            .iter()
+            .filter_map(|(_, info)| {
+                if can_signal_expected_process(info.pid, &info.executable_path) {
+                    Some(info.pid)
+                } else {
+                    log::warn!(
+                        "Skip stopping PID {}: executable path mismatch (possible PID reuse)",
+                        info.pid
+                    );
+                    None
+                }
+            })
+            .collect();
         graceful_shutdown(&pids);
     }
 }
