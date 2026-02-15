@@ -101,7 +101,7 @@ fn generate_sh_shim(
     env_vars: &[(OsString, OsString)],
     path_dirs: &[PathBuf],
 ) -> Result<()> {
-    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::ffi::OsStrExt as _;
 
     let mut script = String::from("#!/bin/sh\n");
 
@@ -233,7 +233,7 @@ fn shell_escape(s: &str) -> String {
 
 #[cfg(not(target_os = "windows"))]
 fn set_executable(path: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::PermissionsExt as _;
     let mut perms = std::fs::metadata(path)
         .map_err(|e| AppError::io(format!("Failed to read permissions for {:?}: {}", path, e)))?
         .permissions();

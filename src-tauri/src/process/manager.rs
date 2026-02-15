@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use reqwest::Client;
 use tokio::sync::broadcast;
 
-use super::control::{can_signal_expected_process, graceful_shutdown, is_expected_process_alive};
+use super::control::{graceful_shutdown, is_expected_process_alive};
 use super::health::check_health;
 #[cfg(target_os = "windows")]
 use super::win_api::get_pid_on_port;
@@ -16,6 +16,17 @@ use super::{
     InstanceProcess, InstanceRuntimeSnapshot, RuntimeEvent, RuntimeEventReason,
     HEALTH_CHECK_GRACE_PERIOD, MONITOR_INTERVAL,
 };
+
+/// Snapshot of an instance's state for the status check loop.
+struct InstanceCheckEntry {
+    id: String,
+    port: u16,
+    pid: u32,
+    executable_path: PathBuf,
+    dashboard_enabled: bool,
+    next_check_at: Option<Instant>,
+    pid_exited: bool,
+}
 
 /// Manages running instance processes.
 pub struct ProcessManager {
@@ -227,20 +238,18 @@ impl ProcessManager {
         let now = Instant::now();
 
         // Get instances to check
-        let instances: Vec<(String, u16, u32, PathBuf, bool, Option<Instant>, bool)> = {
+        let instances: Vec<InstanceCheckEntry> = {
             let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
             procs
                 .iter()
-                .map(|(id, info)| {
-                    (
-                        id.clone(),
-                        info.port,
-                        info.pid,
-                        info.executable_path.clone(),
-                        info.dashboard_enabled,
-                        info.next_check_at,
-                        info.pid_exited,
-                    )
+                .map(|(id, info)| InstanceCheckEntry {
+                    id: id.clone(),
+                    port: info.port,
+                    pid: info.pid,
+                    executable_path: info.executable_path.clone(),
+                    dashboard_enabled: info.dashboard_enabled,
+                    next_check_at: info.next_check_at,
+                    pid_exited: info.pid_exited,
                 })
                 .collect()
         };
@@ -248,59 +257,58 @@ impl ProcessManager {
         let mut results = HashMap::new();
         let mut stale_instances = Vec::new();
 
-        for (id, port, pid, executable_path, dashboard_enabled, next_check_at, pid_exited) in
-            instances
-        {
-            if !dashboard_enabled {
-                let alive = !pid_exited && is_expected_process_alive(pid, &executable_path);
+        for entry in instances {
+            if !entry.dashboard_enabled {
+                let alive = !entry.pid_exited
+                    && is_expected_process_alive(entry.pid, &entry.executable_path);
 
                 if alive {
                     let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
-                    if let Some(info) = procs.get_mut(&id) {
+                    if let Some(info) = procs.get_mut(&entry.id) {
                         info.clear_health_failure_state();
                     }
                     drop(procs);
-                    results.insert(id, true);
+                    results.insert(entry.id, true);
                 } else {
-                    stale_instances.push(id.clone());
-                    results.insert(id, false);
+                    stale_instances.push(entry.id.clone());
+                    results.insert(entry.id, false);
                 }
 
                 continue;
             }
 
             // Check if we should skip this check (exponential backoff)
-            if let Some(next_at) = next_check_at {
+            if let Some(next_at) = entry.next_check_at {
                 if now < next_at {
                     // Not yet time to check, assume still running (in grace period)
-                    results.insert(id, true);
+                    results.insert(entry.id, true);
                     continue;
                 }
             }
 
             // Perform health check
-            let is_healthy = check_health(&self.http_client, port).await;
+            let is_healthy = check_health(&self.http_client, entry.port).await;
 
             if is_healthy {
                 // Health check passed — service is alive (may have self-restarted with a new PID)
                 let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
-                if let Some(info) = procs.get_mut(&id) {
+                if let Some(info) = procs.get_mut(&entry.id) {
                     #[cfg(target_os = "windows")]
-                    if let Some(new_pid) = get_pid_on_port(port) {
+                    if let Some(new_pid) = get_pid_on_port(entry.port) {
                         if new_pid != info.pid {
                             if is_expected_process_alive(new_pid, &info.executable_path) {
                                 log::info!(
                                     "Instance {} PID updated: {} -> {} (port {})",
-                                    id,
+                                    entry.id,
                                     info.pid,
                                     new_pid,
-                                    port
+                                    entry.port
                                 );
                                 info.pid = new_pid;
                             } else {
                                 log::warn!(
                                     "Instance {} rejected PID update {} -> {}: executable path mismatch",
-                                    id,
+                                    entry.id,
                                     info.pid,
                                     new_pid
                                 );
@@ -310,7 +318,7 @@ impl ProcessManager {
                     if info.failure_count >= 3 {
                         log::info!(
                             "Instance {} health restored after {} failures",
-                            id,
+                            entry.id,
                             info.failure_count
                         );
                     }
@@ -318,14 +326,14 @@ impl ProcessManager {
                     info.clear_health_failure_state();
                 }
                 drop(procs);
-                results.insert(id, true);
+                results.insert(entry.id, true);
             } else {
                 // Health check failed — walk grace period regardless of PID state
-                let alive = self.handle_health_failure(&id, now);
+                let alive = self.handle_health_failure(&entry.id, now);
                 if !alive {
-                    stale_instances.push(id.clone());
+                    stale_instances.push(entry.id.clone());
                 }
-                results.insert(id, alive);
+                results.insert(entry.id, alive);
             }
         }
 
@@ -409,21 +417,11 @@ impl ProcessManager {
             );
         }
 
-        let pids: Vec<u32> = entries
+        let targets: Vec<(u32, &std::path::Path)> = entries
             .iter()
-            .filter_map(|(_, info)| {
-                if can_signal_expected_process(info.pid, &info.executable_path) {
-                    Some(info.pid)
-                } else {
-                    log::warn!(
-                        "Skip stopping PID {}: executable path mismatch (possible PID reuse)",
-                        info.pid
-                    );
-                    None
-                }
-            })
+            .map(|(_, info)| (info.pid, info.executable_path.as_path()))
             .collect();
-        graceful_shutdown(&pids);
+        graceful_shutdown(&targets);
     }
 }
 

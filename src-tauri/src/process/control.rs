@@ -230,48 +230,58 @@ pub fn force_kill(pid: u32) -> Result<()> {
 
 /// Send graceful signal to each PID, wait up to the timeout for all to exit,
 /// then force kill any that remain. Blocking.
-pub fn graceful_shutdown(pids: &[u32]) {
+///
+/// Each entry is `(pid, expected_executable_path)`. Identity is verified at
+/// every checkpoint so a reused PID is never signalled or killed.
+pub fn graceful_shutdown(targets: &[(u32, &Path)]) {
     let mut failed_signal_pids = Vec::new();
 
-    for &pid in pids {
-        if is_process_alive(pid) {
+    for &(pid, exe) in targets {
+        if can_signal_expected_process(pid, exe) {
             if let Err(e) = graceful_signal(pid) {
                 log::warn!(
                     "Graceful signal failed for PID {pid}: {e}, will force kill immediately"
                 );
-                failed_signal_pids.push(pid);
+                failed_signal_pids.push((pid, exe));
             }
         }
     }
 
-    for &pid in &failed_signal_pids {
-        if is_process_alive(pid) {
+    for &(pid, exe) in &failed_signal_pids {
+        if can_signal_expected_process(pid, exe) {
             if let Err(e) = force_kill(pid) {
                 log::error!("Failed to force kill PID {pid}: {e}");
             }
         }
     }
 
-    let successful_pids: Vec<u32> = pids
+    let successful: Vec<(u32, &Path)> = targets
         .iter()
         .copied()
-        .filter(|pid| !failed_signal_pids.contains(pid))
+        .filter(|(pid, _)| !failed_signal_pids.iter().any(|(fp, _)| fp == pid))
         .collect();
 
-    if successful_pids.is_empty() || successful_pids.iter().all(|&pid| !is_process_alive(pid)) {
+    if successful.is_empty()
+        || successful
+            .iter()
+            .all(|&(pid, exe)| !is_expected_process_alive(pid, exe))
+    {
         return;
     }
 
     let deadline = Instant::now() + GRACEFUL_SHUTDOWN_TIMEOUT;
     while Instant::now() < deadline {
-        if successful_pids.iter().all(|&pid| !is_process_alive(pid)) {
+        if successful
+            .iter()
+            .all(|&(pid, exe)| !is_expected_process_alive(pid, exe))
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(500));
     }
 
-    for &pid in &successful_pids {
-        if is_process_alive(pid) {
+    for &(pid, exe) in &successful {
+        if can_signal_expected_process(pid, exe) {
             log::warn!(
                 "PID {pid} did not exit within {}s, force killing",
                 GRACEFUL_SHUTDOWN_TIMEOUT.as_secs()

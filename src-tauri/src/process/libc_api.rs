@@ -62,16 +62,10 @@ pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
     let proc_exe = PathBuf::from(format!("/proc/{pid}/exe"));
     let path = fs::read_link(proc_exe).ok()?;
 
-    // psutil compatibility notes (trim garbage):
-    // - readlink() may include NUL-terminated garbage after the real path
-    // - some paths append " (deleted)"; strip it when that literal path doesn't exist
+    // Trim garbage after NUL (readlink may include trailing junk).
     let s = path.to_string_lossy();
     let s = s.split('\0').next().unwrap_or("");
-    if let Some(stripped) = s.strip_suffix(" (deleted)") {
-        if fs::metadata(stripped).is_err() {
-            return Some(PathBuf::from(stripped));
-        }
-    }
+    let s = s.strip_suffix(" (deleted)").unwrap_or(s);
 
     Some(PathBuf::from(s))
 }

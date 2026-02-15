@@ -1,5 +1,6 @@
 //! Instance lifecycle management (start/stop/restart).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tauri::AppHandle;
@@ -21,6 +22,26 @@ use crate::process::{
 use crate::validation::validate_instance_id;
 
 const STARTUP_HEALTH_CHECK_DELAY_SECS: u64 = 3;
+
+/// Resolve the executable path for a freshly spawned child, killing it on failure.
+async fn resolve_child_executable_path(
+    child: &mut tokio::process::Child,
+    pid: u32,
+) -> Result<PathBuf> {
+    for _ in 0..10 {
+        if let Some(path) = resolve_process_executable_path(pid) {
+            return Ok(path);
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+    }
+    // Kill the orphaned child before returning — tokio's Child does not
+    // kill on drop (unlike std), so without this the process leaks.
+    let _ = child.kill().await;
+    Err(AppError::process(format!(
+        "Failed to resolve executable path for PID {}",
+        pid
+    )))
+}
 
 /// Start an instance. Will deploy first if not already deployed.
 pub async fn start_instance(
@@ -112,20 +133,7 @@ pub async fn start_instance(
     let pid = child
         .id()
         .ok_or_else(|| AppError::process("Failed to get process ID"))?;
-    let mut executable_path = None;
-    for _ in 0..10 {
-        executable_path = resolve_process_executable_path(pid);
-        if executable_path.is_some() {
-            break;
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
-    }
-    let executable_path = executable_path.ok_or_else(|| {
-        AppError::process(format!(
-            "Failed to resolve executable path from control API for PID {}",
-            pid
-        ))
-    })?;
+    let executable_path = resolve_child_executable_path(&mut child, pid).await?;
 
     // Store process info with port and dashboard_enabled
     process_manager.set_process(
@@ -286,19 +294,12 @@ pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManage
         .ok_or_else(AppError::instance_not_running)?;
 
     let pid = info.pid;
-    if can_signal_expected_process(pid, &info.executable_path) {
-        tokio::task::spawn_blocking(move || graceful_shutdown(&[pid]))
-            .await
-            .map_err(|e| {
-                AppError::process(format!("Failed to wait for graceful shutdown: {}", e))
-            })?;
-    } else {
-        log::warn!(
-            "Skip stopping instance {}: PID {} executable path mismatch (possible PID reuse)",
-            instance_id,
-            pid
-        );
-    }
+    let exe_path = info.executable_path;
+    tokio::task::spawn_blocking(move || graceful_shutdown(&[(pid, exe_path.as_path())]))
+        .await
+        .map_err(|e| {
+            AppError::process(format!("Failed to wait for graceful shutdown: {}", e))
+        })?;
 
     Ok(())
 }
