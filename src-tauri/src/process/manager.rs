@@ -1,7 +1,7 @@
 //! Instance process tracking and runtime monitoring.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
 use reqwest::Client;
@@ -21,6 +21,26 @@ pub struct ProcessManager {
     processes: RwLock<HashMap<String, InstanceProcess>>,
     http_client: Client,
     runtime_events: broadcast::Sender<RuntimeEvent>,
+}
+
+fn read_lock_recover<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
+    match lock.read() {
+        Ok(guard) => guard,
+        Err(e) => {
+            log::warn!("{} read lock poisoned, recovering inner state", name);
+            e.into_inner()
+        }
+    }
+}
+
+fn write_lock_recover<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockWriteGuard<'a, T> {
+    match lock.write() {
+        Ok(guard) => guard,
+        Err(e) => {
+            log::warn!("{} write lock poisoned, recovering inner state", name);
+            e.into_inner()
+        }
+    }
 }
 
 impl ProcessManager {
@@ -54,7 +74,7 @@ impl ProcessManager {
     /// Handle a health check failure for a dashboard-enabled instance.
     /// Returns `true` if the instance is still in grace period (considered alive).
     fn handle_health_failure(&self, id: &str, now: Instant) -> bool {
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         let Some(info) = procs.get_mut(id) else {
             return false;
         };
@@ -103,7 +123,7 @@ impl ProcessManager {
             return;
         }
         let mut disconnected_ids = Vec::new();
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         for id in stale_instances {
             if procs.remove(id).is_some() {
                 log::info!("Removed stale process tracking entry for instance {}", id);
@@ -130,7 +150,7 @@ impl ProcessManager {
     /// Check if an instance is running (simple check for specific instance).
     pub async fn is_running(&self, instance_id: &str) -> bool {
         let info = {
-            let procs = self.processes.read().unwrap_or_else(|e| e.into_inner());
+            let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
             procs.get(instance_id).cloned()
         };
 
@@ -147,7 +167,7 @@ impl ProcessManager {
 
     /// Set the process info for an instance.
     pub fn set_process(&self, instance_id: &str, pid: u32, port: u16, dashboard_enabled: bool) {
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         procs.insert(
             instance_id.to_string(),
             InstanceProcess::new(pid, port, dashboard_enabled),
@@ -158,13 +178,13 @@ impl ProcessManager {
 
     /// Get the port for an instance.
     pub fn get_port(&self, instance_id: &str) -> Option<u16> {
-        let procs = self.processes.read().unwrap_or_else(|e| e.into_inner());
+        let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
         procs.get(instance_id).map(|info| info.port)
     }
 
     /// Remove an instance from tracking and return its process info.
     pub fn remove(&self, instance_id: &str) -> Option<InstanceProcess> {
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         let removed = procs.remove(instance_id);
         drop(procs);
         if removed.is_some() {
@@ -176,7 +196,7 @@ impl ProcessManager {
     /// Mark that the child PID has exited, without removing the tracking entry.
     /// The runtime monitor will handle cleanup via health checks / `is_process_alive`.
     pub fn mark_pid_exited(&self, instance_id: &str, expected_pid: u32) {
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         if let Some(info) = procs.get_mut(instance_id) {
             if info.pid == expected_pid {
                 info.pid_exited = true;
@@ -200,7 +220,7 @@ impl ProcessManager {
 
         // Get instances to check
         let instances: Vec<(String, u16, u32, bool, Option<Instant>, bool)> = {
-            let procs = self.processes.read().unwrap_or_else(|e| e.into_inner());
+            let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
             procs
                 .iter()
                 .map(|(id, info)| {
@@ -224,7 +244,7 @@ impl ProcessManager {
                 let alive = !pid_exited && is_process_alive(pid);
 
                 if alive {
-                    let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+                    let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
                     if let Some(info) = procs.get_mut(&id) {
                         info.clear_health_failure_state();
                     }
@@ -252,7 +272,7 @@ impl ProcessManager {
 
             if is_healthy {
                 // Health check passed — service is alive (may have self-restarted with a new PID)
-                let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+                let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
                 if let Some(info) = procs.get_mut(&id) {
                     #[cfg(target_os = "windows")]
                     if let Some(new_pid) = get_pid_on_port(port) {
@@ -297,7 +317,7 @@ impl ProcessManager {
     /// Get a runtime snapshot for all tracked instances.
     pub async fn get_runtime_snapshot(&self) -> HashMap<String, InstanceRuntimeSnapshot> {
         let running = self.get_all_statuses().await;
-        let procs = self.processes.read().unwrap_or_else(|e| e.into_inner());
+        let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
 
         procs
             .iter()
@@ -349,13 +369,13 @@ impl ProcessManager {
     /// This returns entries in the process manager map only.
     /// It does not perform runtime status checks.
     pub fn get_tracked_ids(&self) -> Vec<String> {
-        let procs = self.processes.read().unwrap_or_else(|e| e.into_inner());
+        let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
         procs.keys().cloned().collect()
     }
 
     /// Stop all running instances with graceful shutdown.
     pub fn stop_all(&self) {
-        let mut procs = self.processes.write().unwrap_or_else(|e| e.into_inner());
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
         let entries: Vec<(String, InstanceProcess)> = procs.drain().collect();
         drop(procs);
 

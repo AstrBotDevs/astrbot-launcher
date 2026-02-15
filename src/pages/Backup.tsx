@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button, Space, Table, Modal, Form, Select, Typography, Empty } from 'antd';
+import { Button, Space, Table, Modal, Form, Select, Typography, Empty, Tag } from 'antd';
 import { SaveOutlined, DeleteOutlined, ReloadOutlined, ImportOutlined } from '@ant-design/icons';
 import { api, BackupInfo } from '../api';
 import { message } from '../antdStatic';
@@ -124,6 +124,10 @@ export default function Backup() {
   };
 
   const openRestore = (backup: BackupInfo) => {
+    if (backup.corrupted) {
+      message.warning('该备份元数据损坏，无法恢复');
+      return;
+    }
     setSelectedBackup(backup);
     setRestoreOpen(true);
   };
@@ -144,22 +148,41 @@ export default function Backup() {
 
   const columns = [
     {
+      title: '状态',
+      key: 'status',
+      width: 90,
+      render: (_: unknown, record: BackupInfo) =>
+        record.corrupted ? <Tag color="error">损坏</Tag> : <Tag color="success">正常</Tag>,
+    },
+    {
       title: '实例名称',
       dataIndex: ['metadata', 'instance_name'],
       key: 'instance_name',
+      render: (v: string, record: BackupInfo) => (record.corrupted ? '-' : v || '-'),
     },
     {
       title: '版本',
       dataIndex: ['metadata', 'version'],
       key: 'version',
       width: 100,
+      render: (v: string, record: BackupInfo) => (record.corrupted ? '-' : v || '-'),
     },
     {
       title: '创建时间',
       dataIndex: ['metadata', 'created_at'],
       key: 'created_at',
       width: 180,
-      render: (v: string) => new Date(v).toLocaleString(),
+      render: (v: string, record: BackupInfo) => {
+        if (record.corrupted || !v) return '-';
+        const d = new Date(v);
+        return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString();
+      },
+    },
+    {
+      title: '备注',
+      key: 'remark',
+      render: (_: unknown, record: BackupInfo) =>
+        record.corrupted ? record.parse_error || 'backup.toml 解析失败' : '-',
     },
     {
       title: '操作',
@@ -167,7 +190,12 @@ export default function Backup() {
       width: 120,
       render: (_: unknown, record: BackupInfo) => (
         <Space size="small">
-          <Button type="text" icon={<ImportOutlined />} onClick={() => openRestore(record)} />
+          <Button
+            type="text"
+            icon={<ImportOutlined />}
+            disabled={record.corrupted}
+            onClick={() => openRestore(record)}
+          />
           <Button
             type="text"
             danger

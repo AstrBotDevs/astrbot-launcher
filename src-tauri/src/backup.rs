@@ -142,16 +142,39 @@ pub fn list_backups() -> Result<Vec<BackupInfo>> {
             }
         };
 
-        if let Ok(metadata) = read_backup_metadata(&path) {
-            // Skip auto-generated backups
-            if metadata.auto_generated {
-                continue;
+        match read_backup_metadata(&path) {
+            Ok(metadata) => {
+                // Skip auto-generated backups
+                if metadata.auto_generated {
+                    continue;
+                }
+                backups.push(BackupInfo {
+                    filename: fname,
+                    path: path_str,
+                    metadata,
+                    corrupted: false,
+                    parse_error: None,
+                });
             }
-            backups.push(BackupInfo {
-                filename: fname,
-                path: path_str,
-                metadata,
-            });
+            Err(err) => {
+                log::warn!("Backup metadata parse failed for {:?}: {}", path, err);
+                backups.push(BackupInfo {
+                    filename: fname.clone(),
+                    path: path_str,
+                    metadata: BackupMetadata {
+                        created_at: String::new(),
+                        instance_name: "(损坏备份)".to_string(),
+                        instance_id: String::new(),
+                        version: String::new(),
+                        includes_venv: false,
+                        includes_data: false,
+                        arch_target: String::new(),
+                        auto_generated: false,
+                    },
+                    corrupted: true,
+                    parse_error: Some(err.to_string()),
+                });
+            }
         }
     }
 
@@ -192,7 +215,7 @@ fn read_backup_metadata_tar_gz(backup_path: &Path) -> Result<BackupMetadata> {
         }
     }
 
-    Err(AppError::backup(""))
+    Err(AppError::backup("backup.toml not found in tar.gz backup"))
 }
 
 fn read_backup_metadata_zip(backup_path: &Path) -> Result<BackupMetadata> {

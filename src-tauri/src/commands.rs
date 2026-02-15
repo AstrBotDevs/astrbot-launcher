@@ -5,6 +5,8 @@ use reqwest::Client;
 use tauri::{AppHandle, State};
 
 use crate::backup;
+use crate::component;
+use crate::component::ComponentsSnapshot;
 use crate::config::{
     load_config, reload_config, with_config_mut, AppConfig, BackupInfo, InstalledVersion,
 };
@@ -14,8 +16,6 @@ use crate::github::{self, GitHubRelease};
 use crate::instance::{self, InstanceStatus, ProcessManager};
 use crate::paths;
 use crate::platform;
-use crate::component;
-use crate::component::ComponentsSnapshot;
 
 fn sort_installed_versions_semver(versions: &mut [InstalledVersion]) {
     versions.sort_by(|a, b| {
@@ -182,10 +182,7 @@ pub fn is_instance_deployed(instance_id: &str) -> bool {
 }
 
 #[tauri::command]
-pub async fn install_component(
-    state: State<'_, AppState>,
-    component_id: String,
-) -> Result<String> {
+pub async fn install_component(state: State<'_, AppState>, component_id: String) -> Result<String> {
     let id = component::ComponentId::from_str_id(&component_id)
         .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
     component::install_component(&state.client, id).await

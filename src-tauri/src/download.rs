@@ -97,9 +97,19 @@ pub async fn download_version(client: &Client, release: &GitHubRelease) -> Resul
     let core_archive_url = get_source_archive_url(version);
     download_file(client, &core_archive_url, &zip_path).await?;
 
+    let zip_path_str = zip_path
+        .to_str()
+        .ok_or_else(|| {
+            AppError::io(format!(
+                "Version zip path is not valid UTF-8: {:?}",
+                zip_path
+            ))
+        })?
+        .to_string();
+
     let installed = InstalledVersion {
         version: version.to_string(),
-        zip_path: zip_path.to_str().unwrap_or("").to_string(),
+        zip_path: zip_path_str,
     };
 
     let version_owned = version.to_string();

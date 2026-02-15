@@ -162,8 +162,12 @@ fn clear_core_except_data(core_dir: &Path) -> Result<()> {
 pub fn remove_deploy_marker(instance_id: &str) -> Result<()> {
     let marker = get_instance_deploy_marker(instance_id);
     if marker.exists() {
-        fs::remove_file(&marker)
-            .map_err(|e| AppError::io(format!("Failed to remove deployment marker {:?}: {}", marker, e)))?;
+        fs::remove_file(&marker).map_err(|e| {
+            AppError::io(format!(
+                "Failed to remove deployment marker {:?}: {}",
+                marker, e
+            ))
+        })?;
     }
     Ok(())
 }
@@ -181,6 +185,10 @@ fn write_deploy_marker(instance_id: &str, version: &str) -> Result<()> {
 /// Create a virtual environment using the appropriate Python for the version.
 async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
     let python_exe = get_python_for_version(version)?;
+    let venv_dir_arg = venv_dir
+        .to_str()
+        .ok_or_else(|| AppError::python(format!("venv path is not valid UTF-8: {:?}", venv_dir)))?
+        .to_string();
 
     if venv_dir.exists() {
         let venv_python = get_venv_python(venv_dir);
@@ -197,7 +205,7 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
     }
 
     let output = Command::new(&python_exe)
-        .args(["-m", "venv", venv_dir.to_str().unwrap_or("")])
+        .args(["-m", "venv", &venv_dir_arg])
         .output()
         .await
         .map_err(|e| AppError::python(format!("Failed to create venv: {}", e)))?;

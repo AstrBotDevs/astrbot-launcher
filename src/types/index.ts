@@ -113,6 +113,8 @@ export interface BackupInfo {
   filename: string;
   path: string;
   metadata: BackupMetadata;
+  corrupted?: boolean;
+  parse_error?: string | null;
 }
 
 // ========================================

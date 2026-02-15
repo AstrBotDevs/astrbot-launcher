@@ -1,6 +1,7 @@
 mod archive;
 mod backup;
 mod commands;
+mod component;
 mod config;
 mod download;
 mod error;
@@ -9,7 +10,6 @@ mod instance;
 mod paths;
 mod platform;
 mod process;
-mod component;
 mod validation;
 
 use std::sync::Arc;

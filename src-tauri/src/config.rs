@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +9,36 @@ use crate::paths::{config_path, ensure_data_dirs};
 
 static CONFIG_LOCK: Mutex<()> = Mutex::new(());
 static CONFIG_CACHE: OnceLock<RwLock<Arc<AppConfig>>> = OnceLock::new();
+
+fn lock_mutex_recover<'a, T>(lock: &'a Mutex<T>, name: &str) -> MutexGuard<'a, T> {
+    match lock.lock() {
+        Ok(guard) => guard,
+        Err(e) => {
+            log::warn!("{} mutex poisoned, recovering inner state", name);
+            e.into_inner()
+        }
+    }
+}
+
+fn read_lock_recover<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockReadGuard<'a, T> {
+    match lock.read() {
+        Ok(guard) => guard,
+        Err(e) => {
+            log::warn!("{} read lock poisoned, recovering inner state", name);
+            e.into_inner()
+        }
+    }
+}
+
+fn write_lock_recover<'a, T>(lock: &'a RwLock<T>, name: &str) -> RwLockWriteGuard<'a, T> {
+    match lock.write() {
+        Ok(guard) => guard,
+        Err(e) => {
+            log::warn!("{} write lock poisoned, recovering inner state", name);
+            e.into_inner()
+        }
+    }
+}
 
 fn load_config_from_disk() -> Result<AppConfig> {
     let path = config_path();
@@ -46,11 +76,11 @@ pub fn with_config_mut<F, T>(f: F) -> Result<T>
 where
     F: FnOnce(&mut AppConfig) -> Result<T>,
 {
-    let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = lock_mutex_recover(&CONFIG_LOCK, "CONFIG_LOCK");
     let cache = get_config_cache()?;
 
     let current = {
-        let config = cache.read().unwrap_or_else(|e| e.into_inner());
+        let config = read_lock_recover(cache, "CONFIG_CACHE");
         Arc::clone(&config)
     };
 
@@ -58,7 +88,7 @@ where
     let result = f(&mut updated)?;
     save_config_to_disk(&updated)?;
 
-    *cache.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(updated);
+    *write_lock_recover(cache, "CONFIG_CACHE") = Arc::new(updated);
 
     Ok(result)
 }
@@ -146,18 +176,22 @@ pub struct BackupInfo {
     pub filename: String,
     pub path: String,
     pub metadata: BackupMetadata,
+    #[serde(default)]
+    pub corrupted: bool,
+    #[serde(default)]
+    pub parse_error: Option<String>,
 }
 
 pub fn load_config() -> Result<Arc<AppConfig>> {
     let cache = get_config_cache()?;
-    let config = cache.read().unwrap_or_else(|e| e.into_inner());
+    let config = read_lock_recover(cache, "CONFIG_CACHE");
     Ok(Arc::clone(&config))
 }
 
 pub fn reload_config() -> Result<Arc<AppConfig>> {
-    let _guard = CONFIG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = lock_mutex_recover(&CONFIG_LOCK, "CONFIG_LOCK");
     let cache = get_config_cache()?;
     let fresh = Arc::new(load_config_from_disk()?);
-    *cache.write().unwrap_or_else(|e| e.into_inner()) = Arc::clone(&fresh);
+    *write_lock_recover(cache, "CONFIG_CACHE") = Arc::clone(&fresh);
     Ok(fresh)
 }

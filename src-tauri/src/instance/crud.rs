@@ -174,13 +174,21 @@ pub async fn update_instance(
         // Clear core_dir and venv_dir
         let core_dir = get_instance_core_dir(instance_id);
         if core_dir.exists() {
-            std::fs::remove_dir_all(&core_dir)
-                .map_err(|e| AppError::io(format!("Failed to remove core directory {:?}: {}", core_dir, e)))?;
+            std::fs::remove_dir_all(&core_dir).map_err(|e| {
+                AppError::io(format!(
+                    "Failed to remove core directory {:?}: {}",
+                    core_dir, e
+                ))
+            })?;
         }
         let venv_dir = get_instance_venv_dir(instance_id);
         if venv_dir.exists() {
-            std::fs::remove_dir_all(&venv_dir)
-                .map_err(|e| AppError::io(format!("Failed to remove venv directory {:?}: {}", venv_dir, e)))?;
+            std::fs::remove_dir_all(&venv_dir).map_err(|e| {
+                AppError::io(format!(
+                    "Failed to remove venv directory {:?}: {}",
+                    venv_dir, e
+                ))
+            })?;
         }
 
         // Ensure we don't treat partial state as deployed during update

@@ -209,4 +209,3 @@ pub fn get_venv_python(venv_dir: &Path) -> PathBuf {
         venv_dir.join("bin").join("python")
     }
 }
-
