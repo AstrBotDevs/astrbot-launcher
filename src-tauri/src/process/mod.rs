@@ -4,6 +4,9 @@ mod control;
 mod health;
 mod manager;
 
+#[cfg(unix)]
+pub(crate) mod libc_api;
+
 #[cfg(target_os = "windows")]
 pub(crate) mod win_api;
 

@@ -14,10 +14,10 @@ pub fn is_process_alive(pid: u32) -> bool {
 /// Check if a process is alive by PID.
 #[cfg(not(target_os = "windows"))]
 pub fn is_process_alive(pid: u32) -> bool {
-    use nix::sys::signal::kill;
-    use nix::unistd::Pid;
-
-    kill(Pid::from_raw(pid as i32), None).is_ok()
+    let Ok(raw_pid) = super::libc_api::to_pid_t(pid) else {
+        return false;
+    };
+    super::libc_api::is_process_alive(raw_pid)
 }
 
 /// Sends CTRL+C via a sidecar helper.
@@ -50,10 +50,10 @@ pub(super) fn graceful_signal(pid: u32) -> Result<()> {
 /// Send a graceful shutdown signal to a process.
 #[cfg(not(target_os = "windows"))]
 pub(super) fn graceful_signal(pid: u32) -> Result<()> {
-    use nix::sys::signal::{kill, Signal};
-    use nix::unistd::Pid;
+    let raw_pid = super::libc_api::to_pid_t(pid)
+        .map_err(|e| AppError::process(format!("PID {pid} is out of range for pid_t: {e}")))?;
 
-    kill(Pid::from_raw(pid as i32), Signal::SIGINT)
+    super::libc_api::kill(raw_pid, libc::SIGINT)
         .map_err(|e| AppError::process(format!("Failed to send SIGINT to PID {}: {}", pid, e)))
 }
 
@@ -95,26 +95,23 @@ pub fn force_kill(pid: u32) -> Result<()> {
 
 #[cfg(not(target_os = "windows"))]
 pub fn force_kill(pid: u32) -> Result<()> {
-    use nix::sys::signal::{kill, killpg, Signal};
-    use nix::unistd::{getpgid, Pid};
-
     // Check if process is still alive before attempting to kill
     if !is_process_alive(pid) {
         log::debug!("Process {} is not alive, skipping force kill", pid);
         return Ok(());
     }
 
-    let target = Pid::from_raw(pid as i32);
-    match getpgid(Some(target)) {
-        Ok(pgid) => killpg(pgid, Signal::SIGKILL).map_err(|e| {
+    let target = super::libc_api::to_pid_t(pid)
+        .map_err(|e| AppError::process(format!("PID {pid} is out of range for pid_t: {e}")))?;
+
+    match super::libc_api::getpgid(target) {
+        Ok(pgid) => super::libc_api::killpg(pgid, libc::SIGKILL).map_err(|e| {
             AppError::process(format!(
                 "Failed to kill process group {} (from pid {}): {}",
-                pgid.as_raw(),
-                pid,
-                e
+                pgid, pid, e
             ))
         }),
-        Err(e) => kill(target, Signal::SIGKILL).map_err(|kill_err| {
+        Err(e) => super::libc_api::kill(target, libc::SIGKILL).map_err(|kill_err| {
             AppError::process(format!(
                 "Failed to kill process {} (getpgid failed: {}): {}",
                 pid, e, kill_err
