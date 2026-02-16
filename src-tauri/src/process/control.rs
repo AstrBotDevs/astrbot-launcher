@@ -61,8 +61,30 @@ fn normalize_windows_path_for_compare(path: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn is_python_executable(path: &str) -> bool {
+    let filename = path.rsplit('\\').next().unwrap_or(path);
+    filename == "python.exe" || filename == "pythonw.exe"
+}
+
+#[cfg(target_os = "windows")]
 fn executable_paths_match(expected: &Path, actual: &Path) -> bool {
-    normalize_windows_path_for_compare(expected) == normalize_windows_path_for_compare(actual)
+    let expected_str = normalize_windows_path_for_compare(expected);
+    let actual_str = normalize_windows_path_for_compare(actual);
+
+    if expected_str == actual_str {
+        return true;
+    }
+
+    // On Windows, venv python.exe is a launcher that may spawn the base Python
+    // from the components directory. Accept the components Python as a valid match.
+    if is_python_executable(&expected_str)
+        && is_python_executable(&actual_str)
+        && actual_str.contains("\\components\\")
+    {
+        return true;
+    }
+
+    false
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
