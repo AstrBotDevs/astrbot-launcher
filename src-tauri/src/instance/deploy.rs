@@ -155,7 +155,15 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
             .map_err(|e| AppError::python(format!("Failed to remove corrupted venv: {}", e)))?;
     }
 
-    let output = Command::new(&python_exe)
+    let mut cmd = Command::new(&python_exe);
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    let output = cmd
         .args(["-m", "venv", &venv_dir_arg])
         .output()
         .await

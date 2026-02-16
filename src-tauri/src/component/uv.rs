@@ -46,8 +46,8 @@ pub async fn uv_sync(
     let default_index = normalize_default_index(pypi_mirror);
     let new_path = crate::component::build_instance_path(venv_python)?;
 
-    let output = Command::new(&uv_exe)
-        .arg("sync")
+    let mut cmd = Command::new(&uv_exe);
+    cmd.arg("sync")
         .arg("--active")
         .arg("--no-managed-python")
         .arg("--no-python-downloads")
@@ -61,7 +61,15 @@ pub async fn uv_sync(
         .current_dir(core_dir)
         .env("PATH", new_path)
         .env("VIRTUAL_ENV", venv_dir)
-        .env_remove("PYTHONHOME")
+        .env_remove("PYTHONHOME");
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    let output = cmd
         .output()
         .await
         .map_err(|e| AppError::python(format!("Failed to run uv sync: {}", e)))?;

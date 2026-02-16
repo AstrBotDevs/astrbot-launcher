@@ -114,9 +114,17 @@ pub async fn pip_install_requirements(
     args.push("-i".to_string());
     args.push(default_index);
 
-    let output = Command::new(venv_python)
-        .args(&args)
-        .env_remove("PYTHONHOME")
+    let mut cmd = Command::new(venv_python);
+    cmd.args(&args)
+        .env_remove("PYTHONHOME");
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    let output = cmd
         .output()
         .await
         .map_err(|e| AppError::python(format!("Failed to install requirements: {}", e)))?;
