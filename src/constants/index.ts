@@ -9,6 +9,7 @@ export const DEPLOY_STEPS: StepItem[] = [
   { key: 'venv', title: '创建虚拟环境' },
   { key: 'deps', title: '安装依赖' },
   { key: 'start', title: '启动实例' },
+  { key: 'done', title: '完成' },
 ];
 
 export const UPGRADE_STEPS: StepItem[] = [
@@ -17,6 +18,7 @@ export const UPGRADE_STEPS: StepItem[] = [
   { key: 'venv', title: '创建虚拟环境' },
   { key: 'deps', title: '安装依赖' },
   { key: 'restore', title: '还原数据' },
+  { key: 'done', title: '完成' },
 ];
 
 export const DOWNGRADE_STEPS: StepItem[] = UPGRADE_STEPS;
@@ -28,7 +30,13 @@ export const DOWNGRADE_STEPS: StepItem[] = UPGRADE_STEPS;
 export const getDeployStepIndex = (step: DeployStep, isVersionChange: boolean): number => {
   const steps = isVersionChange ? UPGRADE_STEPS : DEPLOY_STEPS;
   const index = steps.findIndex((s) => s.key === step);
-  return index >= 0 ? index : 0;
+  if (index >= 0) return index;
+
+  // Backend may emit terminal steps that aren't part of the "work" steps.
+  // Keep the UI at the end for terminal states.
+  if (step === 'done' || step === 'error') return Math.max(steps.length - 1, 0);
+
+  return 0;
 };
 
 // ========================================

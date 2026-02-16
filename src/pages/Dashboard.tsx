@@ -27,7 +27,6 @@ import {
   ConfirmModal,
 } from '../components';
 import { handleApiError } from '../utils';
-import { isPythonAvailableForVersion, requiredPythonComponent } from '../utils/components';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 
 const { Title } = Typography;
@@ -186,21 +185,17 @@ export default function Dashboard() {
       const instance = instances.find((i) => i.id === id);
       if (!instance) return;
 
-      // Check if the required Python component is installed
+      // Check if Python component is installed
       const { components } = useAppStore.getState();
-      if (!isPythonAvailableForVersion(instance.version, components)) {
-        const needed = requiredPythonComponent(instance.version);
-        const comp = components.find((c) => c.id === needed);
-        message.warning(`请先在版本页面安装 ${comp?.display_name ?? needed} 组件`);
+      const python = components.find((c) => c.id === 'python');
+      if (!python?.installed) {
+        message.warning('请先在版本页面安装 Python 组件');
         return;
       }
 
-      const isDeployed = await api.isInstanceDeployed(id);
       const operationKey = OPERATION_KEYS.instance(id);
 
-      if (!isDeployed) {
-        startDeploy(instance.name, 'start');
-      }
+      startDeploy(instance.name, 'start');
 
       startOperation(operationKey);
       try {

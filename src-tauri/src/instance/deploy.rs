@@ -8,12 +8,12 @@ use tokio::process::Command;
 
 use super::types::DeployProgress;
 use crate::archive::extract_zip_flat;
-use crate::component::get_python_for_version;
-use crate::config::load_config;
+use crate::component::{self, get_python_for_version};
+use crate::config::{load_config, with_config_mut};
 use crate::error::{AppError, Result};
 use crate::paths::{
-    get_instance_core_dir, get_instance_deploy_marker, get_instance_venv_dir, get_venv_python,
-    is_instance_deployed,
+    get_instance_core_dir, get_instance_pip_deps_marker_path, get_instance_venv_dir,
+    get_venv_python,
 };
 use crate::validation::validate_instance_id;
 
@@ -56,11 +56,6 @@ pub async fn deploy_instance_with_version(
 ) -> Result<()> {
     validate_instance_id(instance_id)?;
 
-    let was_deployed = is_instance_deployed(instance_id);
-
-    // Any new deployment attempt starts from "not deployed" state.
-    remove_deploy_marker(instance_id)?;
-
     let config = load_config()?;
     let installed = config
         .installed_versions
@@ -79,23 +74,8 @@ pub async fn deploy_instance_with_version(
     let core_dir = get_instance_core_dir(instance_id);
     let venv_dir = get_instance_venv_dir(instance_id);
 
-    // Extract zip.
-    // We only skip extraction when the previous deployment was fully valid.
-    // If marker is missing, force extraction to self-heal partial deployments.
     let main_py = core_dir.join("main.py");
-    if was_deployed && main_py.exists() {
-        log::info!(
-            "Instance {} code already exists, skipping extraction",
-            instance_id
-        );
-        emit_progress(
-            app_handle,
-            instance_id,
-            "extract",
-            "代码已存在，跳过解压",
-            30,
-        );
-    } else {
+    if !main_py.exists() {
         emit_progress(app_handle, instance_id, "extract", "正在解压代码...", 10);
 
         fs::create_dir_all(&core_dir)
@@ -106,21 +86,18 @@ pub async fn deploy_instance_with_version(
         emit_progress(app_handle, instance_id, "extract", "代码解压完成", 30);
     }
 
-    // Create venv
-    emit_progress(app_handle, instance_id, "venv", "正在创建虚拟环境...", 40);
-    create_venv(&venv_dir, version).await?;
-    emit_progress(app_handle, instance_id, "venv", "虚拟环境创建完成", 50);
-
-    // Install requirements
-    emit_progress(app_handle, instance_id, "deps", "正在安装依赖...", 60);
     let venv_python = get_venv_python(&venv_dir);
-    install_requirements(&venv_python, &core_dir).await?;
+    if !venv_python.exists() {
+        emit_progress(app_handle, instance_id, "venv", "正在创建虚拟环境...", 40);
+        create_venv(&venv_dir, version).await?;
+        emit_progress(app_handle, instance_id, "venv", "虚拟环境创建完成", 50);
+    }
+
+    emit_progress(app_handle, instance_id, "deps", "正在安装依赖...", 60);
+    sync_dependencies(instance_id, &venv_python, &core_dir).await?;
     emit_progress(app_handle, instance_id, "deps", "依赖安装完成", 90);
 
-    write_deploy_marker(instance_id, version)?;
-
-    // Note: "done" is emitted by start_instance after the instance is truly running
-
+    // Note: "done" is emitted by start_instance after the instance is truly running.
     Ok(())
 }
 
@@ -158,30 +135,6 @@ fn clear_core_except_data(core_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Remove deployment marker file. Missing marker is treated as success.
-pub fn remove_deploy_marker(instance_id: &str) -> Result<()> {
-    let marker = get_instance_deploy_marker(instance_id);
-    if marker.exists() {
-        fs::remove_file(&marker).map_err(|e| {
-            AppError::io(format!(
-                "Failed to remove deployment marker {:?}: {}",
-                marker, e
-            ))
-        })?;
-    }
-    Ok(())
-}
-
-fn write_deploy_marker(instance_id: &str, version: &str) -> Result<()> {
-    let marker = get_instance_deploy_marker(instance_id);
-    if let Some(parent) = marker.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| AppError::io(format!("Failed to create marker directory: {}", e)))?;
-    }
-    fs::write(&marker, format!("version={}\n", version))
-        .map_err(|e| AppError::io(format!("Failed to write deployment marker: {}", e)))
-}
-
 /// Create a virtual environment using the appropriate Python for the version.
 async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
     let python_exe = get_python_for_version(version)?;
@@ -195,13 +148,9 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
         if venv_python.exists() {
             return Ok(());
         }
-        // Venv directory exists but Python executable is missing or corrupted, remove and recreate
-        if let Err(e) = std::fs::remove_dir_all(venv_dir) {
-            return Err(AppError::python(format!(
-                "Failed to remove corrupted venv: {}",
-                e
-            )));
-        }
+        // Venv directory exists but Python executable is missing or corrupted, remove and recreate.
+        std::fs::remove_dir_all(venv_dir)
+            .map_err(|e| AppError::python(format!("Failed to remove corrupted venv: {}", e)))?;
     }
 
     let output = Command::new(&python_exe)
@@ -221,46 +170,50 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
     Ok(())
 }
 
-/// Install requirements into an instance's venv.
-async fn install_requirements(venv_python: &Path, core_path: &Path) -> Result<()> {
-    let requirements_path = core_path.join("requirements.txt");
+async fn sync_dependencies(instance_id: &str, venv_python: &Path, core_path: &Path) -> Result<()> {
+    let config = load_config()?;
+    let use_uv = config.use_uv_for_deps;
 
+    if use_uv {
+        if component::is_uv_installed() {
+            let venv_dir = get_instance_venv_dir(instance_id);
+            return component::uv_sync(venv_python, &venv_dir, core_path, &config.pypi_mirror)
+                .await;
+        }
+
+        // uv component disappeared unexpectedly: auto-disable and fall back to pip.
+        if let Err(e) = with_config_mut(|cfg| {
+            cfg.use_uv_for_deps = false;
+            Ok(())
+        }) {
+            log::warn!("Failed to persist uv fallback to pip: {}", e);
+        }
+    }
+
+    // Pip mode: drop a marker file after successful install so future starts can skip.
+    let requirements_path = core_path.join("requirements.txt");
     if !requirements_path.exists() {
         return Ok(());
     }
 
-    let mut args = vec![
-        "-m".to_string(),
-        "pip".to_string(),
-        "install".to_string(),
-        "-r".to_string(),
-        requirements_path
-            .to_str()
-            .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
-            .to_string(),
-    ];
-
-    // Apply PyPI mirror if configured
-    if let Ok(config) = load_config() {
-        let mirror = config.pypi_mirror.as_str();
-        if !mirror.is_empty() {
-            args.push("-i".to_string());
-            args.push(mirror.to_string());
-        }
+    let marker_path = get_instance_pip_deps_marker_path(instance_id);
+    if marker_path.exists() {
+        log::info!(
+            "Skip pip requirements install for instance {}: marker exists",
+            instance_id
+        );
+        return Ok(());
     }
 
-    let output = Command::new(venv_python)
-        .args(&args)
-        .output()
-        .await
-        .map_err(|e| AppError::python(format!("Failed to install requirements: {}", e)))?;
+    component::pip_install_requirements(venv_python, core_path, &config.pypi_mirror).await?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::python(format!(
-            "Failed to install requirements: {}",
-            stderr
-        )));
+    if let Err(e) = std::fs::write(&marker_path, "ok\n") {
+        log::warn!(
+            "Failed to write pip deps marker for instance {} at {:?}: {}",
+            instance_id,
+            marker_path,
+            e
+        );
     }
 
     Ok(())

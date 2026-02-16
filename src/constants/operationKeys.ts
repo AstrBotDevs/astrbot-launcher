@@ -15,6 +15,7 @@ export const OPERATION_KEYS = {
   advancedSavePypiMirror: 'adv:save-pypi-mirror',
   advancedSaveNodejsMirror: 'adv:save-nodejs-mirror',
   advancedSaveNpmRegistry: 'adv:save-npm-registry',
+  advancedSaveUseUvForDeps: 'adv:save-use-uv-for-deps',
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,
   advancedClearVenv: (instanceId: string) => `adv:venv-${instanceId}`,
   advancedClearPycache: (instanceId: string) => `adv:pycache-${instanceId}`,

@@ -39,11 +39,6 @@ pub fn get_instance_dir(instance_id: &str) -> PathBuf {
     get_data_dir().join("instances").join(instance_id)
 }
 
-/// Get the deployment marker file path for an instance.
-pub fn get_instance_deploy_marker(instance_id: &str) -> PathBuf {
-    get_instance_dir(instance_id).join(".deployed")
-}
-
 /// Get the core directory for an instance.
 pub fn get_instance_core_dir(instance_id: &str) -> PathBuf {
     get_instance_dir(instance_id).join("core")
@@ -54,13 +49,13 @@ pub fn get_instance_venv_dir(instance_id: &str) -> PathBuf {
     get_instance_dir(instance_id).join("venv")
 }
 
+/// Get pip dependency installation marker path for an instance.
+pub fn get_instance_pip_deps_marker_path(instance_id: &str) -> PathBuf {
+    get_instance_venv_dir(instance_id).join(".pip_deps_installed")
+}
+
 /// Check if an instance is fully deployed
 pub fn is_instance_deployed(instance_id: &str) -> bool {
-    let marker = get_instance_deploy_marker(instance_id);
-    if !marker.exists() {
-        return false;
-    }
-
     let core_dir = get_instance_core_dir(instance_id);
     let venv_dir = get_instance_venv_dir(instance_id);
     let venv_python = get_venv_python(&venv_dir);
@@ -90,6 +85,11 @@ pub fn get_components_dir() -> PathBuf {
 /// Get a specific component's directory.
 pub fn get_component_dir(dir_name: &str) -> PathBuf {
     get_components_dir().join(dir_name)
+}
+
+/// Get Python runtime directory under the unified python component.
+pub fn get_python_runtime_dir(runtime: &str) -> PathBuf {
+    get_component_dir("python").join(runtime)
 }
 
 /// Get the path to the Python executable for a standalone Python directory.
@@ -208,4 +208,33 @@ pub fn get_venv_python(venv_dir: &Path) -> PathBuf {
     {
         venv_dir.join("bin").join("python")
     }
+}
+
+/// Get uv executable path within uv component directory.
+pub fn get_uv_exe_path(uv_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        uv_dir.join("uv.exe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        uv_dir.join("uv")
+    }
+}
+
+/// Get uvx executable path within uv component directory.
+pub fn get_uvx_exe_path(uv_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        uv_dir.join("uvx.exe")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        uv_dir.join("uvx")
+    }
+}
+
+/// Get uv cache directory (component-level, shared by all instances).
+pub fn get_uv_cache_dir() -> PathBuf {
+    get_component_dir("uv").join("cache")
 }

@@ -2,7 +2,7 @@ use std::env::consts::{ARCH, OS};
 
 use crate::github::GitHubAsset;
 
-pub fn get_arch_target() -> Result<&'static str, String> {
+pub fn get_python_arch_target() -> Result<&'static str, String> {
     match (OS, ARCH) {
         ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
         ("windows", "aarch64") => Ok("aarch64-pc-windows-msvc"),
@@ -21,7 +21,7 @@ pub fn find_python_asset_for_version(
     assets: &[GitHubAsset],
     major_version: &str,
 ) -> Result<(String, String), String> {
-    let arch_target = get_arch_target()?;
+    let arch_target = get_python_arch_target()?;
 
     // Pattern: cpython-{major_version}.XX+TAG-ARCH-install_only_stripped.tar.gz
     let pattern_prefix = format!("cpython-{}", major_version);
@@ -64,4 +64,17 @@ pub fn get_nodejs_os_arch() -> Result<(&'static str, &'static str), String> {
         _ => return Err(format!("Unsupported architecture for Node.js: {ARCH}")),
     };
     Ok((os, arch))
+}
+
+/// Get uv release archive filename for current platform.
+pub fn get_uv_archive_name() -> Result<&'static str, String> {
+    match (OS, ARCH) {
+        ("windows", "x86_64") => Ok("uv-x86_64-pc-windows-msvc.zip"),
+        ("windows", "aarch64") => Ok("uv-aarch64-pc-windows-msvc.zip"),
+        ("linux", "x86_64") => Ok("uv-x86_64-unknown-linux-gnu.tar.gz"),
+        ("linux", "aarch64") => Ok("uv-aarch64-unknown-linux-gnu.tar.gz"),
+        ("macos", "x86_64") => Ok("uv-x86_64-apple-darwin.tar.gz"),
+        ("macos", "aarch64") => Ok("uv-aarch64-apple-darwin.tar.gz"),
+        _ => Err(format!("Unsupported platform for uv: {OS} {ARCH}")),
+    }
 }

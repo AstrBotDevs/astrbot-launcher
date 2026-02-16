@@ -4,9 +4,10 @@ use std::path::Path;
 
 use walkdir::WalkDir;
 
-use super::deploy::remove_deploy_marker;
 use crate::error::{AppError, Result};
-use crate::paths::{get_instance_core_dir, get_instance_venv_dir};
+use crate::paths::{
+    get_instance_core_dir, get_instance_pip_deps_marker_path, get_instance_venv_dir,
+};
 use crate::validation::validate_instance_id;
 
 /// Clear instance data directory.
@@ -27,12 +28,17 @@ pub fn clear_instance_data(instance_id: &str) -> Result<()> {
 pub fn clear_instance_venv(instance_id: &str) -> Result<()> {
     validate_instance_id(instance_id)?;
 
+    let marker_path = get_instance_pip_deps_marker_path(instance_id);
+    if marker_path.exists() {
+        std::fs::remove_file(&marker_path)
+            .map_err(|e| AppError::io(format!("Failed to clear pip deps marker: {}", e)))?;
+    }
+
     let venv_dir = get_instance_venv_dir(instance_id);
     if venv_dir.exists() {
         std::fs::remove_dir_all(&venv_dir)
             .map_err(|e| AppError::io(format!("Failed to clear venv: {}", e)))?;
     }
-    remove_deploy_marker(instance_id)?;
     Ok(())
 }
 

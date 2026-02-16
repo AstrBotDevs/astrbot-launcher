@@ -13,7 +13,7 @@ use crate::component;
 use crate::config::load_config;
 use crate::error::{AppError, Result};
 use crate::paths::{
-    get_instance_core_dir, get_instance_venv_dir, get_venv_python, is_instance_deployed,
+    get_instance_core_dir, get_instance_venv_dir, get_uv_cache_dir, get_venv_python,
 };
 use crate::process::{
     can_signal_expected_process, check_port_available, find_available_port, force_kill,
@@ -55,10 +55,9 @@ pub async fn start_instance(
         return Err(AppError::instance_running());
     }
 
-    // Check if instance needs deployment
-    if !is_instance_deployed(instance_id) {
-        deploy_instance(instance_id, app_handle).await?;
-    }
+    // Always run deployment preflight before each start:
+    // self-heal extraction/venv and re-sync dependencies.
+    deploy_instance(instance_id, app_handle).await?;
 
     // Check if dashboard is enabled
     let dashboard_enabled = is_dashboard_enabled(instance_id);
@@ -75,6 +74,7 @@ pub async fn start_instance(
         .instances
         .get(instance_id)
         .ok_or_else(|| AppError::instance_not_found(instance_id))?;
+    let default_index = component::normalize_default_index(&config.pypi_mirror);
     let port = if instance_config.port > 0 {
         check_port_available(instance_config.port)?;
         instance_config.port
@@ -97,6 +97,10 @@ pub async fn start_instance(
     }
 
     let new_path = component::build_instance_path(&venv_python)?;
+    let uv_cache_dir = get_uv_cache_dir();
+    std::fs::create_dir_all(&uv_cache_dir)
+        .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;
+
     let mut cmd = Command::new(&venv_python);
     cmd.arg(&main_py)
         .current_dir(&core_dir)
@@ -106,6 +110,12 @@ pub async fn start_instance(
         .env("PYTHONIOENCODING", "utf-8")
         .env("VIRTUAL_ENV", &venv_dir)
         .env("PATH", new_path)
+        // Make child uv/uvx behavior align with launcher's uv sync policy.
+        .env("UV_NO_MANAGED_PYTHON", "1")
+        .env("UV_PYTHON_DOWNLOADS", "never")
+        .env("UV_PYTHON", &venv_python)
+        .env("UV_CACHE_DIR", &uv_cache_dir)
+        .env("UV_DEFAULT_INDEX", default_index)
         .env_remove("PYTHONHOME")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -247,9 +257,7 @@ pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManage
     let exe_path = info.executable_path;
     tokio::task::spawn_blocking(move || graceful_shutdown(&[(pid, exe_path.as_path())]))
         .await
-        .map_err(|e| {
-            AppError::process(format!("Failed to wait for graceful shutdown: {}", e))
-        })?;
+        .map_err(|e| AppError::process(format!("Failed to wait for graceful shutdown: {}", e)))?;
 
     Ok(())
 }

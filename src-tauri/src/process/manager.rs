@@ -345,10 +345,7 @@ impl ProcessManager {
                 (
                     id.clone(),
                     InstanceRuntimeSnapshot {
-                        state: statuses
-                            .get(id)
-                            .cloned()
-                            .unwrap_or(InstanceState::Stopped),
+                        state: statuses.get(id).cloned().unwrap_or(InstanceState::Stopped),
                         port: info.port,
                         dashboard_enabled: info.dashboard_enabled,
                     },

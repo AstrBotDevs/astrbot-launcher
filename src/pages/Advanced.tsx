@@ -16,6 +16,7 @@ type ConfirmModalType = 'clearData' | 'clearVenv' | 'clearPycache' | null;
 export default function Advanced() {
   const instances = useAppStore((s) => s.instances);
   const config = useAppStore((s) => s.config);
+  const components = useAppStore((s) => s.components);
   const loading = useAppStore((s) => s.loading);
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
@@ -163,6 +164,22 @@ export default function Advanced() {
     }
   };
 
+  const handleUseUvForDepsChange = async (checked: boolean) => {
+    const key = OPERATION_KEYS.advancedSaveUseUvForDeps;
+    startOperation(key);
+    try {
+      await reloadSnapshot();
+      await api.saveUseUvForDeps(checked);
+      await reloadSnapshot({ throwOnError: true });
+      message.success('设置已保存');
+    } catch (error) {
+      handleApiError(error);
+      await reloadSnapshot();
+    } finally {
+      finishOperation(key);
+    }
+  };
+
   // Actions
   const handleClearData = async () => {
     if (!selectedDataInstance) return;
@@ -263,6 +280,8 @@ export default function Advanced() {
     .filter((i) => i.state === 'stopped')
     .map((i) => ({ label: i.name, value: i.id }));
   const runningInstances = instances.filter((i) => i.state !== 'stopped');
+  const uvInstalled = components.some((c) => c.id === 'uv' && c.installed);
+  const useUvSaving = operations[OPERATION_KEYS.advancedSaveUseUvForDeps] || false;
 
   const getConfirmLoading = () => {
     switch (confirmModal) {
@@ -409,6 +428,21 @@ export default function Advanced() {
           </Form.Item>
           <Form.Item label="开机自启动" extra="开启后系统启动时自动运行 AstrBot Launcher">
             <Switch checked={autostart} onChange={handleAutostartChange} />
+          </Form.Item>
+          <Form.Item
+            label="使用 UV 安装依赖"
+            extra={
+              uvInstalled
+                ? '启用后使用 UV sync 同步依赖；uv 组件丢失时会自动回退到 pip'
+                : '需要先在版本管理页面安装 UV 组件'
+            }
+          >
+            <Switch
+              checked={config?.use_uv_for_deps ?? false}
+              onChange={handleUseUvForDepsChange}
+              disabled={!uvInstalled}
+              loading={useUvSaving}
+            />
           </Form.Item>
         </Form>
       </Card>

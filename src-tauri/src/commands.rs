@@ -36,11 +36,26 @@ pub struct AppState {
     pub process_manager: Arc<ProcessManager>,
 }
 
+fn apply_uv_fallback(config: &mut AppConfig) {
+    if config.use_uv_for_deps && !component::is_uv_installed() {
+        config.use_uv_for_deps = false;
+        if let Err(e) = with_config_mut(|cfg| {
+            if cfg.use_uv_for_deps {
+                cfg.use_uv_for_deps = false;
+            }
+            Ok(())
+        }) {
+            log::warn!("Failed to persist uv fallback to pip: {}", e);
+        }
+    }
+}
+
 pub async fn build_app_snapshot(process_manager: &ProcessManager) -> Result<AppSnapshot> {
     let config = load_config()?;
     let instances = instance::list_instances(process_manager).await?;
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
+    apply_uv_fallback(&mut config_for_snapshot);
     sort_installed_versions_semver(&mut config_for_snapshot.installed_versions);
 
     Ok(AppSnapshot {
@@ -57,6 +72,7 @@ pub async fn build_app_snapshot_from_disk(process_manager: &ProcessManager) -> R
     let instances = instance::list_instances(process_manager).await?;
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
+    apply_uv_fallback(&mut config_for_snapshot);
     sort_installed_versions_semver(&mut config_for_snapshot.installed_versions);
 
     Ok(AppSnapshot {
@@ -148,6 +164,18 @@ pub async fn save_npm_registry(npm_registry: String) -> Result<()> {
 }
 
 #[tauri::command]
+pub async fn save_use_uv_for_deps(use_uv_for_deps: bool) -> Result<()> {
+    if use_uv_for_deps && !component::is_uv_installed() {
+        return Err(AppError::other("uv 组件未安装，无法启用 uv 安装依赖"));
+    }
+
+    with_config_mut(move |config| {
+        config.use_uv_for_deps = use_uv_for_deps;
+        Ok(())
+    })
+}
+
+#[tauri::command]
 pub fn compare_versions(a: String, b: String) -> i32 {
     match (
         semver::Version::parse(a.trim_start_matches('v')),
@@ -188,7 +216,7 @@ pub async fn install_component(
     component_id: String,
 ) -> Result<String> {
     let id = component::ComponentId::from_str_id(&component_id)
-        .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
+        .ok_or_else(|| AppError::other(format!("Unknown component: {}", component_id)))?;
     component::install_component(&state.client, id, Some(&app_handle)).await
 }
 
@@ -199,7 +227,7 @@ pub async fn reinstall_component(
     component_id: String,
 ) -> Result<String> {
     let id = component::ComponentId::from_str_id(&component_id)
-        .ok_or_else(|| AppError::python(format!("Unknown component: {}", component_id)))?;
+        .ok_or_else(|| AppError::other(format!("Unknown component: {}", component_id)))?;
     component::reinstall_component(&state.client, id, Some(&app_handle)).await
 }
 

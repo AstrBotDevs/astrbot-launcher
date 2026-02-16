@@ -33,6 +33,8 @@ export const api = {
   savePypiMirror: (pypiMirror: string) => invoke<void>('save_pypi_mirror', { pypiMirror }),
   saveNodejsMirror: (nodejsMirror: string) => invoke<void>('save_nodejs_mirror', { nodejsMirror }),
   saveNpmRegistry: (npmRegistry: string) => invoke<void>('save_npm_registry', { npmRegistry }),
+  saveUseUvForDeps: (useUvForDeps: boolean) =>
+    invoke<void>('save_use_uv_for_deps', { useUvForDeps }),
   saveCloseToTray: (closeToTray: boolean) => invoke<void>('save_close_to_tray', { closeToTray }),
   compareVersions: (a: string, b: string) => invoke<number>('compare_versions', { a, b }),
   saveCheckInstanceUpdate: (checkInstanceUpdate: boolean) =>

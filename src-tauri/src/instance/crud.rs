@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use tauri::AppHandle;
 
-use super::deploy::{deploy_instance_with_version, emit_progress, remove_deploy_marker};
+use super::deploy::{deploy_instance_with_version, emit_progress};
 use super::types::{CmdConfig, InstanceStatus};
 use crate::backup::{create_backup, delete_backup, restore_data_to_instance};
 use crate::config::{load_config, with_config_mut, AppConfig, InstanceConfig};
@@ -190,9 +190,6 @@ pub async fn update_instance(
                 ))
             })?;
         }
-
-        // Ensure we don't treat partial state as deployed during update
-        remove_deploy_marker(instance_id)?;
 
         // Deploy(internally emits extract 10-30%, venv 40-50%, deps 60-90%)
         deploy_instance_with_version(instance_id, new_version, app_handle).await?;

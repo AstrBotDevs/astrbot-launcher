@@ -107,6 +107,8 @@ pub struct AppConfig {
     pub nodejs_mirror: String,
     #[serde(default)]
     pub npm_registry: String,
+    #[serde(default)]
+    pub use_uv_for_deps: bool,
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
     #[serde(default = "default_true")]
@@ -130,6 +132,7 @@ impl Default for AppConfig {
             pypi_mirror: String::new(),
             nodejs_mirror: String::new(),
             npm_registry: String::new(),
+            use_uv_for_deps: false,
             close_to_tray: true,
             check_instance_update: true,
             persist_instance_state: false,

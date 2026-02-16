@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use crate::paths::{get_component_dir, get_data_dir};
 
-/// Migrate legacy `python/` and `compat_python/` directories to the new
-/// `components/python312` and `components/python310` layout.
+/// Migrate legacy `python/` and `compat_python/` directories to the unified
+/// `components/python/py312` and `components/python/py310` layout.
 ///
 /// Migration errors are logged but never crash the app.
 pub fn migrate_legacy_python_dirs() {
@@ -12,14 +12,14 @@ pub fn migrate_legacy_python_dirs() {
 
     migrate_dir(
         &data_dir.join("python"),
-        &get_component_dir("python312"),
-        "python/ -> components/python312",
+        &get_component_dir("python").join("py312"),
+        "python/ -> components/python/py312",
     );
 
     migrate_dir(
         &data_dir.join("compat_python"),
-        &get_component_dir("python310"),
-        "compat_python/ -> components/python310",
+        &get_component_dir("python").join("py310"),
+        "compat_python/ -> components/python/py310",
     );
 
     if let Err(e) = migrate_instance_pyvenv_cfgs(&data_dir) {
@@ -79,8 +79,8 @@ fn migrate_instance_pyvenv_cfgs(data_dir: &Path) -> Result<(), String> {
 
     let legacy_python = to_absolute(data_dir.join("python"));
     let legacy_compat = to_absolute(data_dir.join("compat_python"));
-    let target_python312 = to_absolute(get_component_dir("python312"));
-    let target_python310 = to_absolute(get_component_dir("python310"));
+    let target_python312 = to_absolute(get_component_dir("python").join("py312"));
+    let target_python310 = to_absolute(get_component_dir("python").join("py310"));
 
     let mut replacements = Vec::new();
     if let (Some(legacy), Some(target)) = (legacy_python, target_python312) {

@@ -2,92 +2,29 @@ use std::path::PathBuf;
 
 use reqwest::Client;
 use tauri::AppHandle;
+use tokio::process::Command;
+
+use super::common::normalize_default_index;
 
 use crate::archive::extract_tar_gz_flat;
 use crate::config::load_config;
 use crate::download::{download_file, emit_download_progress, DownloadOptions};
 use crate::error::{AppError, Result};
 use crate::github::{fetch_python_releases, wrap_with_proxy};
-use crate::paths::{get_component_dir, get_python_exe_path};
+use crate::paths::{get_python_exe_path, get_python_runtime_dir};
 use crate::platform::find_python_asset_for_version;
 
-use super::types::ComponentId;
+const RUNTIME_PY310: &str = "py310";
+const RUNTIME_PY312: &str = "py312";
 
-/// Check whether a single component is installed.
-pub(super) fn is_component_installed(id: ComponentId) -> bool {
-    let dir = get_component_dir(id.dir_name());
-    let exe = get_python_exe_path(&dir);
-    exe.exists()
+/// Check whether the unified python component is installed.
+/// Python is considered installed only when both 3.10 and 3.12 runtimes exist.
+pub(super) fn is_component_installed() -> bool {
+    is_runtime_installed(RUNTIME_PY310) && is_runtime_installed(RUNTIME_PY312)
 }
 
-/// Determine which component a given AstrBot version requires.
-/// v4.14.6 and earlier -> Python310, v4.14.7+ -> Python312.
-pub fn required_component_for_version(version: &str) -> ComponentId {
-    if requires_python310(version) {
-        ComponentId::Python310
-    } else {
-        ComponentId::Python312
-    }
-}
-
-/// Get the appropriate Python executable for a given AstrBot version.
-pub fn get_python_for_version(version: &str) -> Result<PathBuf> {
-    let id = required_component_for_version(version);
-    let dir = get_component_dir(id.dir_name());
-    let exe = get_python_exe_path(&dir);
-
-    if exe.exists() {
-        Ok(exe)
-    } else {
-        Err(AppError::python_not_installed())
-    }
-}
-
-/// Install a component if it is not already installed. Skips if already present.
-pub(super) async fn install_component(
-    client: &Client,
-    id: ComponentId,
-    app_handle: Option<&AppHandle>,
-) -> Result<String> {
-    if is_component_installed(id) {
-        return Ok(format!("{} 已安装", id.display_name()));
-    }
-
-    let target_dir = get_component_dir(id.dir_name());
-    let version = install_python_version(
-        client,
-        id.major_version(),
-        &target_dir,
-        app_handle,
-        id.dir_name(),
-    )
-    .await?;
-    Ok(format!("已安装 {}: {}", id.display_name(), version))
-}
-
-/// Reinstall a component (always removes existing and re-downloads).
-pub(super) async fn reinstall_component(
-    client: &Client,
-    id: ComponentId,
-    app_handle: Option<&AppHandle>,
-) -> Result<String> {
-    let target_dir = get_component_dir(id.dir_name());
-    let version = install_python_version(
-        client,
-        id.major_version(),
-        &target_dir,
-        app_handle,
-        id.dir_name(),
-    )
-    .await?;
-    Ok(format!("已重新安装 {}: {}", id.display_name(), version))
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Check if an AstrBot version requires Python 3.10 (v4.14.6 and earlier).
+/// Determine whether a given AstrBot version requires Python 3.10.
+/// v4.14.6 and earlier -> 3.10, v4.14.7+ -> 3.12.
 fn requires_python310(version: &str) -> bool {
     let version = version.strip_prefix('v').unwrap_or(version);
     let parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
@@ -100,19 +37,143 @@ fn requires_python310(version: &str) -> bool {
     }
 }
 
+/// Get the appropriate Python executable for a given AstrBot version.
+pub fn get_python_for_version(version: &str) -> Result<PathBuf> {
+    let runtime = if requires_python310(version) {
+        RUNTIME_PY310
+    } else {
+        RUNTIME_PY312
+    };
+
+    let dir = get_python_runtime_dir(runtime);
+    let exe = get_python_exe_path(&dir);
+    if exe.exists() {
+        Ok(exe)
+    } else {
+        Err(AppError::python_not_installed())
+    }
+}
+
+/// Install unified Python component (3.10 + 3.12).
+pub(super) async fn install_component(
+    client: &Client,
+    app_handle: Option<&AppHandle>,
+) -> Result<String> {
+    if is_component_installed() {
+        return Ok("Python 已安装".to_string());
+    }
+    let installed = install_missing_runtimes(client, app_handle).await?;
+    if installed.is_empty() {
+        Ok("Python 已安装".to_string())
+    } else {
+        Ok(format!("已安装 Python: {}", installed.join(", ")))
+    }
+}
+
+/// Reinstall unified Python component (3.10 + 3.12).
+pub(super) async fn reinstall_component(
+    client: &Client,
+    app_handle: Option<&AppHandle>,
+) -> Result<String> {
+    let py310_dir = get_python_runtime_dir(RUNTIME_PY310);
+    let py312_dir = get_python_runtime_dir(RUNTIME_PY312);
+
+    if py310_dir.exists() {
+        std::fs::remove_dir_all(&py310_dir)
+            .map_err(|e| AppError::io(format!("Failed to clean Python 3.10 runtime: {}", e)))?;
+    }
+    if py312_dir.exists() {
+        std::fs::remove_dir_all(&py312_dir)
+            .map_err(|e| AppError::io(format!("Failed to clean Python 3.12 runtime: {}", e)))?;
+    }
+
+    let installed = install_missing_runtimes(client, app_handle).await?;
+    Ok(format!("已重新安装 Python: {}", installed.join(", ")))
+}
+
+pub async fn pip_install_requirements(
+    venv_python: &std::path::Path,
+    core_path: &std::path::Path,
+    pypi_mirror: &str,
+) -> Result<()> {
+    let requirements_path = core_path.join("requirements.txt");
+    if !requirements_path.exists() {
+        return Ok(());
+    }
+
+    let mut args = vec![
+        "-m".to_string(),
+        "pip".to_string(),
+        "install".to_string(),
+        "-r".to_string(),
+        requirements_path
+            .to_str()
+            .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
+            .to_string(),
+    ];
+
+    let default_index = normalize_default_index(pypi_mirror);
+    args.push("-i".to_string());
+    args.push(default_index);
+
+    let output = Command::new(venv_python)
+        .args(&args)
+        .env_remove("PYTHONHOME")
+        .output()
+        .await
+        .map_err(|e| AppError::python(format!("Failed to install requirements: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::python(format!(
+            "Failed to install requirements: {}",
+            stderr
+        )));
+    }
+
+    Ok(())
+}
+
+fn is_runtime_installed(runtime: &str) -> bool {
+    let dir = get_python_runtime_dir(runtime);
+    let exe = get_python_exe_path(&dir);
+    exe.exists()
+}
+
+async fn install_missing_runtimes(
+    client: &Client,
+    app_handle: Option<&AppHandle>,
+) -> Result<Vec<String>> {
+    let mut versions = Vec::new();
+
+    if !is_runtime_installed(RUNTIME_PY310) {
+        let target_dir = get_python_runtime_dir(RUNTIME_PY310);
+        let version = install_python_version(client, "3.10", &target_dir, app_handle).await?;
+        versions.push(version);
+    }
+    if !is_runtime_installed(RUNTIME_PY312) {
+        let target_dir = get_python_runtime_dir(RUNTIME_PY312);
+        let version = install_python_version(client, "3.12", &target_dir, app_handle).await?;
+        versions.push(version);
+    }
+
+    Ok(versions)
+}
+
 /// Download and install a specific Python version to the given directory.
 async fn install_python_version(
     client: &Client,
     major_version: &str,
     target_dir: &PathBuf,
     app_handle: Option<&AppHandle>,
-    component_id: &str,
 ) -> Result<String> {
-    // If target directory exists but runtime is missing/corrupted, clean it first.
     if target_dir.exists() {
-        if let Err(e) = std::fs::remove_dir_all(target_dir) {
-            log::warn!("Failed to clean python dir {:?}: {}", target_dir, e);
-        }
+        std::fs::remove_dir_all(target_dir).map_err(|e| {
+            AppError::io(format!(
+                "Failed to clean python dir {:?}: {}",
+                target_dir, e
+            ))
+        })?;
     }
 
     let releases = fetch_python_releases(client).await?;
@@ -129,19 +190,17 @@ async fn install_python_version(
     }
 
     let mut url = download_url.ok_or_else(|| AppError::python(major_version.to_string()))?;
-
     if let Ok(config) = load_config() {
         url = wrap_with_proxy(&config.github_proxy, &url);
     }
 
     let archive_path = target_dir.join("python.tar.gz");
-
     std::fs::create_dir_all(target_dir)
         .map_err(|e| AppError::io(format!("Failed to create python dir: {}", e)))?;
 
     let opts = app_handle.map(|ah| DownloadOptions {
         app_handle: ah,
-        id: component_id,
+        id: "python",
     });
 
     download_file(client, &url, &archive_path, opts.as_ref()).await?;

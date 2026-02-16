@@ -198,6 +198,7 @@ pub fn run() {
             commands::save_pypi_mirror,
             commands::save_nodejs_mirror,
             commands::save_npm_registry,
+            commands::save_use_uv_for_deps,
             commands::save_close_to_tray,
             commands::compare_versions,
             commands::save_check_instance_update,

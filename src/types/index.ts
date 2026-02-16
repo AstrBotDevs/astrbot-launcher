@@ -18,6 +18,7 @@ export interface AppConfig {
   pypi_mirror: string;
   nodejs_mirror: string;
   npm_registry: string;
+  use_uv_for_deps: boolean;
   close_to_tray: boolean;
   check_instance_update: boolean;
   persist_instance_state: boolean;
