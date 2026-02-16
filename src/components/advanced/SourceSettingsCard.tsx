@@ -20,6 +20,37 @@ interface SourceSettingsCardProps {
   onSaveNpmRegistry: () => Promise<void>;
 }
 
+interface SourceInputRowProps {
+  label: string;
+  extra: string;
+  value: string;
+  placeholder: string;
+  loading: boolean;
+  onChange: (value: string) => void;
+  onSave: () => Promise<void>;
+}
+
+function SourceInputRow({
+  label,
+  extra,
+  value,
+  placeholder,
+  loading,
+  onChange,
+  onSave,
+}: SourceInputRowProps) {
+  return (
+    <Form.Item label={label} extra={extra}>
+      <Space.Compact style={{ width: '100%' }}>
+        <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+        <Button icon={<SaveOutlined />} loading={loading} onClick={() => void onSave()}>
+          保存
+        </Button>
+      </Space.Compact>
+    </Form.Item>
+  );
+}
+
 export function SourceSettingsCard({
   githubProxy,
   pypiMirror,
@@ -41,62 +72,42 @@ export function SourceSettingsCard({
   return (
     <Card title="源" size="small" style={{ marginBottom: 16 }}>
       <Form layout="vertical">
-        <Form.Item label="GitHub 代理" extra="用于加速 GitHub API 和文件下载，留空使用官方地址">
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={githubProxy}
-              onChange={(e) => onGithubProxyChange(e.target.value)}
-              placeholder="例如: https://cdn.gh-proxy.org"
-            />
-            <Button icon={<SaveOutlined />} loading={githubSaving} onClick={() => void onSaveGithubProxy()}>
-              保存
-            </Button>
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item label="PyPI 镜像源" extra="用于加速 pip 依赖安装，留空使用官方源">
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={pypiMirror}
-              onChange={(e) => onPypiMirrorChange(e.target.value)}
-              placeholder="例如: https://pypi.tuna.tsinghua.edu.cn/simple"
-            />
-            <Button icon={<SaveOutlined />} loading={pypiSaving} onClick={() => void onSavePypiMirror()}>
-              保存
-            </Button>
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item label="Node.js 镜像源" extra="用于加速 Node.js 二进制下载，留空使用官方地址">
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={nodejsMirror}
-              onChange={(e) => onNodejsMirrorChange(e.target.value)}
-              placeholder="例如: https://npmmirror.com/mirrors/node"
-            />
-            <Button
-              icon={<SaveOutlined />}
-              loading={nodejsMirrorSaving}
-              onClick={() => void onSaveNodejsMirror()}
-            >
-              保存
-            </Button>
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item label="npm 注册源" extra="用于加速 npm 包安装，留空使用官方源">
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={npmRegistry}
-              onChange={(e) => onNpmRegistryChange(e.target.value)}
-              placeholder="例如: https://registry.npmmirror.com"
-            />
-            <Button
-              icon={<SaveOutlined />}
-              loading={npmRegistrySaving}
-              onClick={() => void onSaveNpmRegistry()}
-            >
-              保存
-            </Button>
-          </Space.Compact>
-        </Form.Item>
+        <SourceInputRow
+          label="GitHub 代理"
+          extra="用于加速 GitHub API 和文件下载，留空使用官方地址"
+          value={githubProxy}
+          placeholder="例如: https://cdn.gh-proxy.org"
+          loading={githubSaving}
+          onChange={onGithubProxyChange}
+          onSave={onSaveGithubProxy}
+        />
+        <SourceInputRow
+          label="PyPI 镜像源"
+          extra="用于加速 pip 依赖安装，留空使用官方源"
+          value={pypiMirror}
+          placeholder="例如: https://pypi.tuna.tsinghua.edu.cn/simple"
+          loading={pypiSaving}
+          onChange={onPypiMirrorChange}
+          onSave={onSavePypiMirror}
+        />
+        <SourceInputRow
+          label="Node.js 镜像源"
+          extra="用于加速 Node.js 二进制下载，留空使用官方地址"
+          value={nodejsMirror}
+          placeholder="例如: https://npmmirror.com/mirrors/node"
+          loading={nodejsMirrorSaving}
+          onChange={onNodejsMirrorChange}
+          onSave={onSaveNodejsMirror}
+        />
+        <SourceInputRow
+          label="npm 注册源"
+          extra="用于加速 npm 包安装，留空使用官方源"
+          value={npmRegistry}
+          placeholder="例如: https://registry.npmmirror.com"
+          loading={npmRegistrySaving}
+          onChange={onNpmRegistryChange}
+          onSave={onSaveNpmRegistry}
+        />
       </Form>
     </Card>
   );

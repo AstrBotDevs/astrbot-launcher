@@ -66,6 +66,34 @@ fn compute_percent_0_99(downloaded: u64, total: Option<u64>) -> Option<u8> {
     Some(p.min(99) as u8)
 }
 
+fn build_get_request<'a>(client: &'a Client, url: &'a str) -> reqwest::RequestBuilder {
+    client.get(url).header("User-Agent", USER_AGENT)
+}
+
+async fn send_get(
+    client: &Client,
+    url: &str,
+    accept_json: bool,
+) -> std::result::Result<reqwest::Response, reqwest::Error> {
+    let request = if accept_json {
+        build_get_request(client, url).header("Accept", "application/json")
+    } else {
+        build_get_request(client, url)
+    };
+    request.send().await
+}
+
+fn ensure_success_status(
+    resp: &reqwest::Response,
+    make_error: impl FnOnce(String) -> AppError,
+) -> Result<()> {
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(make_error(resp.status().to_string()))
+    }
+}
+
 /// Download a file from `url` and stream it to `dest`.
 pub async fn download_file(
     client: &Client,
@@ -77,16 +105,10 @@ pub async fn download_file(
         fs::create_dir_all(parent).map_err(|e| AppError::io(e.to_string()))?;
     }
 
-    let resp = client
-        .get(url)
-        .header("User-Agent", USER_AGENT)
-        .send()
+    let resp = send_get(client, url, false)
         .await
         .map_err(|e| AppError::network(e.to_string()))?;
-
-    if !resp.status().is_success() {
-        return Err(AppError::network(resp.status().to_string()));
-    }
+    ensure_success_status(&resp, AppError::network)?;
 
     let total = resp.content_length();
     let mut downloaded: u64 = 0;
@@ -150,17 +172,10 @@ pub async fn download_file(
 
 /// Fetch JSON from `url` and deserialize into `T`.
 pub async fn fetch_json<T: DeserializeOwned>(client: &Client, url: &str) -> Result<T> {
-    let resp = client
-        .get(url)
-        .header("User-Agent", USER_AGENT)
-        .header("Accept", "application/json")
-        .send()
+    let resp = send_get(client, url, true)
         .await
         .map_err(|e| AppError::network(e.to_string()))?;
-
-    if !resp.status().is_success() {
-        return Err(AppError::network(resp.status().to_string()));
-    }
+    ensure_success_status(&resp, AppError::network)?;
 
     resp.json::<T>()
         .await
@@ -169,16 +184,10 @@ pub async fn fetch_json<T: DeserializeOwned>(client: &Client, url: &str) -> Resu
 
 /// Check whether `url` is reachable (HTTP GET returns a success status).
 pub async fn check_url(client: &Client, url: &str) -> Result<()> {
-    let resp = client
-        .get(url)
-        .header("User-Agent", USER_AGENT)
-        .send()
+    let resp = send_get(client, url, false)
         .await
         .map_err(|e| AppError::network_with_url(url, e.to_string()))?;
-
-    if !resp.status().is_success() {
-        return Err(AppError::network_with_url(url, resp.status().to_string()));
-    }
+    ensure_success_status(&resp, |detail| AppError::network_with_url(url, detail))?;
 
     Ok(())
 }

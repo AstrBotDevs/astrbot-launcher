@@ -7,6 +7,7 @@ export const OPERATION_KEYS = {
   uninstallVersion: (version: string) => `uninstall:${version}`,
   installComponent: (componentId: string) => `install-component:${componentId}`,
   reinstallComponent: (componentId: string) => `reinstall-component:${componentId}`,
+  fetchReleases: 'fetch-releases',
 
   backupCreate: 'backup:create',
   backupRestore: 'backup:restore',

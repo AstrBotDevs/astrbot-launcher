@@ -14,7 +14,6 @@ import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
-import { useInstanceUpgrade } from '../hooks';
 import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import {
@@ -70,8 +69,38 @@ export default function Dashboard() {
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  // Version upgrade hook
-  const { upgradeInstance } = useInstanceUpgrade();
+  const upgradeInstance = useCallback(
+    async (instance: InstanceStatus, newName: string, newVersion: string): Promise<boolean> => {
+      return runOperation({
+        key: OPERATION_KEYS.instance(instance.id),
+        reloadBefore: true,
+        task: async () => {
+          const { instances } = useAppStore.getState();
+          const latestInstance = instances.find((i) => i.id === instance.id);
+          if (!latestInstance) {
+            message.warning('实例不存在或已被删除');
+            closeDeploy();
+            return SKIP_OPERATION;
+          }
+
+          const cmp = await api.compareVersions(newVersion, instance.version);
+          const deployType = cmp > 0 ? 'upgrade' : 'downgrade';
+          startDeploy(latestInstance.name, deployType);
+
+          await api.updateInstance(instance.id, newName, newVersion);
+        },
+        onSuccess: () => {
+          message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
+          // done event from backend auto-closes the modal via event listener
+        },
+        onError: (error) => {
+          handleApiError(error);
+          closeDeploy();
+        },
+      });
+    },
+    [startDeploy, closeDeploy, runOperation]
+  );
 
   // Edit modal version comparison (async)
   const [editVersionCmp, setEditVersionCmp] = useState(0);

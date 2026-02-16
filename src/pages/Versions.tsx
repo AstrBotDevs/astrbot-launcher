@@ -9,9 +9,7 @@ import {
 import type { InstalledVersion, GitHubRelease } from '../types';
 import { api } from '../api';
 import { message } from '../antdStatic';
-import { useReleases } from '../hooks';
-import { useVersions } from '../hooks/useVersions';
-import { useOperationRunner } from '../hooks/useOperationRunner';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import { ConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
@@ -32,10 +30,22 @@ export default function Versions() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const [versionToUninstall, setVersionToUninstall] = useState<InstalledVersion | null>(null);
+  const [releases, setReleases] = useState<GitHubRelease[]>([]);
+  const releasesLoading = operations[OPERATION_KEYS.fetchReleases] || false;
 
-  const { releases, loading: releasesLoading, fetchReleases } = useReleases();
-
-  const { handleInstall, handleUninstall: doUninstall } = useVersions();
+  const fetchReleases = useCallback(
+    async (forceRefresh = false) => {
+      await runOperation({
+        key: OPERATION_KEYS.fetchReleases,
+        reloadAfter: false,
+        task: () => api.fetchReleases(forceRefresh),
+        onSuccess: (result) => {
+          setReleases(result);
+        },
+      });
+    },
+    [runOperation]
+  );
 
   const refreshAll = useCallback(
     async (forceRefresh = false) => {
@@ -45,8 +55,53 @@ export default function Versions() {
   );
 
   useEffect(() => {
-    fetchReleases();
+    void fetchReleases();
   }, [fetchReleases]);
+
+  const handleInstall = useCallback(
+    async (release: GitHubRelease) => {
+      const key = OPERATION_KEYS.installVersion(release.tag_name);
+      await runOperation({
+        key,
+        reloadBefore: true,
+        task: async () => {
+          const { versions: currentVersions } = useAppStore.getState();
+          if (currentVersions.some((v) => v.version === release.tag_name)) {
+            message.info(`版本 ${release.tag_name} 已下载`);
+            return SKIP_OPERATION;
+          }
+          await api.installVersion(release);
+        },
+        onSuccess: () => {
+          message.success(`版本 ${release.tag_name} 下载成功`);
+        },
+      });
+    },
+    [runOperation]
+  );
+
+  const doUninstall = useCallback(
+    async (version: InstalledVersion) => {
+      const key = OPERATION_KEYS.uninstallVersion(version.version);
+      await runOperation({
+        key,
+        reloadBefore: true,
+        task: async () => {
+          const { versions: currentVersions } = useAppStore.getState();
+          if (!currentVersions.some((v) => v.version === version.version)) {
+            message.info(`版本 ${version.version} 已卸载`);
+            return SKIP_OPERATION;
+          }
+
+          await api.uninstallVersion(version.version);
+        },
+        onSuccess: () => {
+          message.success('已卸载');
+        },
+      });
+    },
+    [runOperation]
+  );
 
   const handleUninstall = async () => {
     if (!versionToUninstall) return;
@@ -55,26 +110,21 @@ export default function Versions() {
     setVersionToUninstall(null);
   };
 
-  const handleInstallComponent = useCallback(
-    async (componentId: string) => {
-      const key = OPERATION_KEYS.installComponent(componentId);
-      await runOperation({
-        key,
-        task: () => api.installComponent(componentId),
-        onSuccess: (result) => {
-          message.success(result);
-        },
-      });
-    },
-    [runOperation]
-  );
+  const runComponentInstallAction = useCallback(
+    async (componentId: string, mode: 'install' | 'reinstall') => {
+      const key =
+        mode === 'install'
+          ? OPERATION_KEYS.installComponent(componentId)
+          : OPERATION_KEYS.reinstallComponent(componentId);
 
-  const handleReinstallComponent = useCallback(
-    async (componentId: string) => {
-      const key = OPERATION_KEYS.reinstallComponent(componentId);
+      const task =
+        mode === 'install'
+          ? () => api.installComponent(componentId)
+          : () => api.reinstallComponent(componentId);
+
       await runOperation({
         key,
-        task: () => api.reinstallComponent(componentId),
+        task,
         onSuccess: (result) => {
           message.success(result);
         },
@@ -141,7 +191,7 @@ export default function Versions() {
                               type="text"
                               icon={<ReloadOutlined />}
                               loading={isReinstalling}
-                              onClick={() => handleReinstallComponent(comp.id)}
+                              onClick={() => runComponentInstallAction(comp.id, 'reinstall')}
                             />
                           </Tooltip>,
                         ].filter(Boolean)
@@ -161,7 +211,7 @@ export default function Versions() {
                             size="small"
                             icon={<DownloadOutlined />}
                             loading={isInstalling}
-                            onClick={() => handleInstallComponent(comp.id)}
+                            onClick={() => runComponentInstallAction(comp.id, 'install')}
                             key="install"
                           >
                             安装

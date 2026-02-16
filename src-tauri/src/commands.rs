@@ -183,15 +183,43 @@ define_save_config_command!(
 
 // === Components ===
 
+enum ComponentCommandAction {
+    Install,
+    Reinstall,
+}
+
+async fn run_component_command(
+    app_handle: &AppHandle,
+    state: &State<'_, AppState>,
+    component_id: &str,
+    action: ComponentCommandAction,
+) -> Result<String> {
+    let id = component::ComponentId::from_str_id(component_id)
+        .ok_or_else(|| AppError::other(format!("Unknown component: {}", component_id)))?;
+
+    match action {
+        ComponentCommandAction::Install => {
+            component::install_component(&state.client, id, Some(app_handle)).await
+        }
+        ComponentCommandAction::Reinstall => {
+            component::reinstall_component(&state.client, id, Some(app_handle)).await
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn install_component(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     component_id: String,
 ) -> Result<String> {
-    let id = component::ComponentId::from_str_id(&component_id)
-        .ok_or_else(|| AppError::other(format!("Unknown component: {}", component_id)))?;
-    component::install_component(&state.client, id, Some(&app_handle)).await
+    run_component_command(
+        &app_handle,
+        &state,
+        &component_id,
+        ComponentCommandAction::Install,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -200,9 +228,13 @@ pub async fn reinstall_component(
     state: State<'_, AppState>,
     component_id: String,
 ) -> Result<String> {
-    let id = component::ComponentId::from_str_id(&component_id)
-        .ok_or_else(|| AppError::other(format!("Unknown component: {}", component_id)))?;
-    component::reinstall_component(&state.client, id, Some(&app_handle)).await
+    run_component_command(
+        &app_handle,
+        &state,
+        &component_id,
+        ComponentCommandAction::Reinstall,
+    )
+    .await
 }
 
 // === GitHub ===
