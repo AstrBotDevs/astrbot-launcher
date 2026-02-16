@@ -14,7 +14,7 @@ import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
-import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
+import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import { useAppStore } from '../stores';
 import {
   DeployProgressModal,
@@ -42,7 +42,6 @@ export default function Dashboard() {
   const config = useAppStore((s) => s.config);
   const loading = useAppStore((s) => s.loading);
   const initialized = useAppStore((s) => s.initialized);
-  const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
   const operations = useAppStore((s) => s.operations);
   const deployState = useAppStore((s) => s.deployState);
@@ -68,39 +67,6 @@ export default function Dashboard() {
   // Forms
   const [createForm] = Form.useForm();
   const [editForm] = Form.useForm();
-
-  const upgradeInstance = useCallback(
-    async (instance: InstanceStatus, newName: string, newVersion: string): Promise<boolean> => {
-      return runOperation({
-        key: OPERATION_KEYS.instance(instance.id),
-        reloadBefore: true,
-        task: async () => {
-          const { instances } = useAppStore.getState();
-          const latestInstance = instances.find((i) => i.id === instance.id);
-          if (!latestInstance) {
-            message.warning('实例不存在或已被删除');
-            closeDeploy();
-            return SKIP_OPERATION;
-          }
-
-          const cmp = await api.compareVersions(newVersion, instance.version);
-          const deployType = cmp > 0 ? 'upgrade' : 'downgrade';
-          startDeploy(latestInstance.name, deployType);
-
-          await api.updateInstance(instance.id, newName, newVersion);
-        },
-        onSuccess: () => {
-          message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
-          // done event from backend auto-closes the modal via event listener
-        },
-        onError: (error) => {
-          handleApiError(error);
-          closeDeploy();
-        },
-      });
-    },
-    [startDeploy, closeDeploy, runOperation]
-  );
 
   // Edit modal version comparison (async)
   const [editVersionCmp, setEditVersionCmp] = useState(0);
@@ -194,39 +160,52 @@ export default function Dashboard() {
     async (values: { name: string; version: string; port?: number }) => {
       if (!editingInstance) return;
 
-      const isVersionChange = values.version !== editingInstance.version;
+      let deployStarted = false;
+      await runOperation({
+        key: OPERATION_KEYS.instance(editingInstance.id),
+        reloadBefore: true,
+        task: async () => {
+          const { instances: latestInstances, versions: latestVersions } = useAppStore.getState();
+          const latestInstance = findLatestOrSkip(
+            latestInstances,
+            (i) => i.id === editingInstance.id,
+            '实例不存在或已被删除'
+          );
+          if (latestInstance === SKIP_OPERATION) {
+            setEditOpen(false);
+            setEditFormVersion('');
+            return SKIP_OPERATION;
+          }
 
-      await reloadSnapshot();
-      const { instances: latestInstances, versions: latestVersions } = useAppStore.getState();
-      const latestInstance = latestInstances.find((i) => i.id === editingInstance.id);
-      if (!latestInstance) {
-        message.warning('实例不存在或已被删除');
-        setEditOpen(false);
-        setEditFormVersion('');
-        return;
-      }
-      if (!latestVersions.some((v) => v.version === values.version)) {
-        message.warning('所选版本不存在，请先刷新后重试');
-        return;
-      }
+          if (!latestVersions.some((v) => v.version === values.version)) {
+            message.warning('所选版本不存在，请先刷新后重试');
+            return SKIP_OPERATION;
+          }
 
-      setEditOpen(false);
-      setEditFormVersion('');
+          if (values.version !== latestInstance.version) {
+            const cmp = await api.compareVersions(values.version, latestInstance.version);
+            const deployType = cmp > 0 ? 'upgrade' : 'downgrade';
+            startDeploy(latestInstance.name, deployType);
+            deployStarted = true;
+          }
 
-      if (isVersionChange) {
-        // Use the upgrade hook for version changes
-        await upgradeInstance(latestInstance, values.name, values.version);
-      } else {
-        await runOperation({
-          key: OPERATION_KEYS.instance(latestInstance.id),
-          task: () => api.updateInstance(latestInstance.id, values.name, values.version, values.port ?? 0),
-          onSuccess: () => {
-            message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
-          },
-        });
-      }
+          setEditOpen(false);
+          setEditFormVersion('');
+          await api.updateInstance(latestInstance.id, values.name, values.version, values.port ?? 0);
+        },
+        onSuccess: () => {
+          message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
+          // done event from backend auto-closes the modal via event listener
+        },
+        onError: (error) => {
+          handleApiError(error);
+          if (deployStarted) {
+            closeDeploy();
+          }
+        },
+      });
     },
-    [editingInstance, upgradeInstance, reloadSnapshot, runOperation]
+    [editingInstance, startDeploy, closeDeploy, runOperation]
   );
 
   const executeInstanceAction = useCallback(
@@ -243,9 +222,12 @@ export default function Dashboard() {
         reloadBefore: true,
         task: async () => {
           const { instances: latestInstances } = useAppStore.getState();
-          const latestInstance = latestInstances.find((i) => i.id === id);
-          if (!latestInstance) {
-            message.warning('实例不存在或已被删除');
+          const latestInstance = findLatestOrSkip(
+            latestInstances,
+            (i) => i.id === id,
+            '实例不存在或已被删除'
+          );
+          if (latestInstance === SKIP_OPERATION) {
             onSkipped?.();
             return SKIP_OPERATION;
           }

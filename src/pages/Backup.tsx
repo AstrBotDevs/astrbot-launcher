@@ -5,7 +5,7 @@ import { api } from '../api';
 import type { BackupInfo } from '../types';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
+import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import { ConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
 
@@ -33,9 +33,12 @@ export default function Backup() {
       reloadBefore: true,
       task: async () => {
         const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === values.instanceId);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
+        const latestInstance = findLatestOrSkip(
+          latestInstances,
+          (i) => i.id === values.instanceId,
+          '实例不存在或已被删除'
+        );
+        if (latestInstance === SKIP_OPERATION) {
           return SKIP_OPERATION;
         }
         if (latestInstance.state !== 'stopped') {
@@ -62,18 +65,23 @@ export default function Backup() {
       reloadBefore: true,
       task: async () => {
         const { backups: latestBackups, instances: latestInstances } = useAppStore.getState();
-        if (!latestBackups.some((b) => b.path === selectedBackup.path)) {
-          message.warning('备份不存在或已被删除');
+        const latestBackup = findLatestOrSkip(
+          latestBackups,
+          (b) => b.path === selectedBackup.path,
+          '备份不存在或已被删除'
+        );
+        if (latestBackup === SKIP_OPERATION) {
           setRestoreOpen(false);
           setSelectedBackup(null);
           return SKIP_OPERATION;
         }
 
-        const targetInstance = latestInstances.find(
-          (i) => i.id === selectedBackup.metadata.instance_id
+        const targetInstance = findLatestOrSkip(
+          latestInstances,
+          (i) => i.id === latestBackup.metadata.instance_id,
+          '原实例不存在或已被删除'
         );
-        if (!targetInstance) {
-          message.warning('原实例不存在或已被删除');
+        if (targetInstance === SKIP_OPERATION) {
           setRestoreOpen(false);
           setSelectedBackup(null);
           return SKIP_OPERATION;
@@ -83,7 +91,7 @@ export default function Backup() {
           return SKIP_OPERATION;
         }
 
-        await api.restoreBackup(selectedBackup.path);
+        await api.restoreBackup(latestBackup.path);
       },
       onSuccess: () => {
         message.success('备份恢复成功');

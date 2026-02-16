@@ -3,7 +3,7 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
+import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import {
   ConfirmModal,
   GeneralSettingsCard,
@@ -29,6 +29,14 @@ type ClearInstanceOptions = {
   successMessage: string;
   requireStoppedMessage?: string;
 };
+type SourceSettingConfig = {
+  key: string;
+  value: string;
+  save: (value: string) => Promise<void>;
+  successMessage: string;
+  reloadBefore?: boolean;
+};
+type ClearActionType = Exclude<ConfirmModalType, null>;
 
 export default function Advanced() {
   const instances = useAppStore((s) => s.instances);
@@ -137,37 +145,47 @@ export default function Advanced() {
     });
   };
 
-  const handleSaveGithubProxy = async () => {
-    await handleSaveSetting({
+  const sourceSettingConfigs: Record<
+    'githubProxy' | 'pypiMirror' | 'nodejsMirror' | 'npmRegistry',
+    SourceSettingConfig
+  > = {
+    githubProxy: {
       key: OPERATION_KEYS.advancedSaveGithubProxy,
-      save: () => api.saveGithubProxy(githubProxy),
+      value: githubProxy,
+      save: api.saveGithubProxy,
       successMessage: 'GitHub 代理已保存',
       reloadBefore: true,
-    });
-  };
-
-  const handleSavePypiMirror = async () => {
-    await handleSaveSetting({
+    },
+    pypiMirror: {
       key: OPERATION_KEYS.advancedSavePypiMirror,
-      save: () => api.savePypiMirror(pypiMirror),
+      value: pypiMirror,
+      save: api.savePypiMirror,
       successMessage: 'PyPI 镜像源已保存',
       reloadBefore: true,
-    });
-  };
-
-  const handleSaveNodejsMirror = async () => {
-    await handleSaveSetting({
+    },
+    nodejsMirror: {
       key: OPERATION_KEYS.advancedSaveNodejsMirror,
-      save: () => api.saveNodejsMirror(nodejsMirror),
+      value: nodejsMirror,
+      save: api.saveNodejsMirror,
       successMessage: 'Node.js 镜像源已保存',
-    });
+    },
+    npmRegistry: {
+      key: OPERATION_KEYS.advancedSaveNpmRegistry,
+      value: npmRegistry,
+      save: api.saveNpmRegistry,
+      successMessage: 'npm 注册源已保存',
+    },
   };
 
-  const handleSaveNpmRegistry = async () => {
+  const handleSaveSourceSetting = async (
+    type: 'githubProxy' | 'pypiMirror' | 'nodejsMirror' | 'npmRegistry'
+  ) => {
+    const config = sourceSettingConfigs[type];
     await handleSaveSetting({
-      key: OPERATION_KEYS.advancedSaveNpmRegistry,
-      save: () => api.saveNpmRegistry(npmRegistry),
-      successMessage: 'npm 注册源已保存',
+      key: config.key,
+      save: () => config.save(config.value),
+      successMessage: config.successMessage,
+      reloadBefore: config.reloadBefore,
     });
   };
 
@@ -203,9 +221,12 @@ export default function Advanced() {
       reloadBefore: true,
       task: async () => {
         const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === selectedId);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
+        const latestInstance = findLatestOrSkip(
+          latestInstances,
+          (i) => i.id === selectedId,
+          '实例不存在或已被删除'
+        );
+        if (latestInstance === SKIP_OPERATION) {
           clearSelection();
           setConfirmModal(null);
           return SKIP_OPERATION;
@@ -226,37 +247,34 @@ export default function Advanced() {
     });
   };
 
-  // Actions
-  const handleClearData = async () => {
-    await handleClearInstance({
+  const clearActionConfigs: Record<ClearActionType, ClearInstanceOptions> = {
+    clearData: {
       selectedId: selectedDataInstance,
       operationKey: OPERATION_KEYS.advancedClearData,
       clearSelection: () => setSelectedDataInstance(null),
-      clearAction: (id) => api.clearInstanceData(id),
+      clearAction: api.clearInstanceData,
       successMessage: '数据已清空',
       requireStoppedMessage: '请先停止实例再清空数据',
-    });
-  };
-
-  const handleClearVenv = async () => {
-    await handleClearInstance({
+    },
+    clearVenv: {
       selectedId: selectedVenvInstance,
       operationKey: OPERATION_KEYS.advancedClearVenv,
       clearSelection: () => setSelectedVenvInstance(null),
-      clearAction: (id) => api.clearInstanceVenv(id),
+      clearAction: api.clearInstanceVenv,
       successMessage: '虚拟环境已清空',
       requireStoppedMessage: '请先停止实例再清空虚拟环境',
-    });
-  };
-
-  const handleClearPycache = async () => {
-    await handleClearInstance({
+    },
+    clearPycache: {
       selectedId: selectedPycacheInstance,
       operationKey: OPERATION_KEYS.advancedClearPycache,
       clearSelection: () => setSelectedPycacheInstance(null),
-      clearAction: (id) => api.clearPycache(id),
+      clearAction: api.clearPycache,
       successMessage: 'Python 缓存已清空',
-    });
+    },
+  };
+
+  const handleClearByType = async (type: ClearActionType) => {
+    await handleClearInstance(clearActionConfigs[type]);
   };
 
   const instanceOptions = instances.map((i) => ({
@@ -298,21 +316,21 @@ export default function Advanced() {
         return {
           title: '警告',
           content: '确定清空该实例的数据？此操作不可恢复！',
-          onOk: handleClearData,
+          onOk: () => void handleClearByType('clearData'),
           isDanger: true,
         };
       case 'clearVenv':
         return {
           title: '确认操作',
           content: '确定清空该实例的虚拟环境？下次启动时将重新创建。',
-          onOk: handleClearVenv,
+          onOk: () => void handleClearByType('clearVenv'),
           isDanger: true,
         };
       case 'clearPycache':
         return {
           title: '确认操作',
           content: '确定清空该实例的 Python 缓存？',
-          onOk: handleClearPycache,
+          onOk: () => void handleClearByType('clearPycache'),
           isDanger: false,
         };
       default:
@@ -355,10 +373,10 @@ export default function Advanced() {
         onPypiMirrorChange={setPypiMirror}
         onNodejsMirrorChange={setNodejsMirror}
         onNpmRegistryChange={setNpmRegistry}
-        onSaveGithubProxy={handleSaveGithubProxy}
-        onSavePypiMirror={handleSavePypiMirror}
-        onSaveNodejsMirror={handleSaveNodejsMirror}
-        onSaveNpmRegistry={handleSaveNpmRegistry}
+        onSaveGithubProxy={() => handleSaveSourceSetting('githubProxy')}
+        onSavePypiMirror={() => handleSaveSourceSetting('pypiMirror')}
+        onSaveNodejsMirror={() => handleSaveSourceSetting('nodejsMirror')}
+        onSaveNpmRegistry={() => handleSaveSourceSetting('npmRegistry')}
       />
 
       <TroubleshootingCard
