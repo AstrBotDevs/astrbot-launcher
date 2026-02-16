@@ -51,6 +51,7 @@ pub async fn uv_sync(
         .arg("--active")
         .arg("--no-managed-python")
         .arg("--no-python-downloads")
+        .arg("--inexact")
         .arg("--python")
         .arg(venv_python)
         .arg("--cache-dir")
