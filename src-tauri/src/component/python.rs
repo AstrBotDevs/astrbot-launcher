@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use reqwest::Client;
 use tauri::AppHandle;
@@ -9,7 +9,7 @@ use crate::archive::ArchiveFormat;
 use crate::config::load_config;
 use crate::error::{AppError, Result};
 use crate::github::{fetch_python_releases, wrap_with_proxy};
-use crate::paths::{get_python_exe_path, get_python_runtime_dir};
+use crate::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
 use crate::platform::find_python_asset_for_version;
 
 const RUNTIME_PY310: &str = "py310";
@@ -136,6 +136,54 @@ pub async fn pip_install_requirements(
             stderr
         )));
     }
+
+    Ok(())
+}
+
+/// Create a virtual environment using the appropriate Python for the version.
+pub async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
+    let python_exe = get_python_for_version(version)?;
+    let venv_dir_arg = venv_dir
+        .to_str()
+        .ok_or_else(|| AppError::python(format!("venv path is not valid UTF-8: {:?}", venv_dir)))?
+        .to_string();
+
+    if venv_dir.exists() {
+        let venv_python = get_venv_python(venv_dir);
+        if venv_python.exists() {
+            return Ok(());
+        }
+        // Venv directory exists but Python executable is missing or corrupted, remove and recreate.
+        std::fs::remove_dir_all(venv_dir)
+            .map_err(|e| AppError::python(format!("Failed to remove corrupted venv: {}", e)))?;
+    }
+
+    let mut cmd = Command::new(&python_exe);
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    let output = cmd
+        .args(["-m", "venv", &venv_dir_arg])
+        .output()
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create venv: {}", e);
+            AppError::python(format!("Failed to create venv: {}", e))
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::python(format!(
+            "Failed to create venv: {}",
+            stderr
+        )));
+    }
+
+    log::debug!("Venv created at {:?}", venv_dir);
 
     Ok(())
 }

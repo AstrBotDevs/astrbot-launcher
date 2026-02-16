@@ -4,11 +4,10 @@ use std::fs;
 use std::path::Path;
 
 use tauri::{AppHandle, Emitter as _};
-use tokio::process::Command;
 
 use super::types::DeployProgress;
 use crate::archive::extract_zip_flat;
-use crate::component::{self, get_python_for_version};
+use crate::component;
 use crate::config::{load_config, with_config_mut};
 use crate::error::{AppError, Result};
 use crate::paths::{
@@ -91,7 +90,7 @@ pub async fn deploy_instance_with_version(
     let venv_python = get_venv_python(&venv_dir);
     if !venv_python.exists() {
         emit_progress(app_handle, instance_id, "venv", "正在创建虚拟环境...", 40);
-        create_venv(&venv_dir, version).await?;
+        component::create_venv(&venv_dir, version).await?;
         emit_progress(app_handle, instance_id, "venv", "虚拟环境创建完成", 50);
     }
 
@@ -133,54 +132,6 @@ fn clear_core_except_data(core_dir: &Path) -> Result<()> {
                 .map_err(|e| AppError::io(format!("Failed to clear file {:?}: {}", path, e)))?;
         }
     }
-
-    Ok(())
-}
-
-/// Create a virtual environment using the appropriate Python for the version.
-async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
-    let python_exe = get_python_for_version(version)?;
-    let venv_dir_arg = venv_dir
-        .to_str()
-        .ok_or_else(|| AppError::python(format!("venv path is not valid UTF-8: {:?}", venv_dir)))?
-        .to_string();
-
-    if venv_dir.exists() {
-        let venv_python = get_venv_python(venv_dir);
-        if venv_python.exists() {
-            return Ok(());
-        }
-        // Venv directory exists but Python executable is missing or corrupted, remove and recreate.
-        std::fs::remove_dir_all(venv_dir)
-            .map_err(|e| AppError::python(format!("Failed to remove corrupted venv: {}", e)))?;
-    }
-
-    let mut cmd = Command::new(&python_exe);
-
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
-        cmd.creation_flags(CREATE_NO_WINDOW.0);
-    }
-
-    let output = cmd
-        .args(["-m", "venv", &venv_dir_arg])
-        .output()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to create venv: {}", e);
-            AppError::python(format!("Failed to create venv: {}", e))
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::python(format!(
-            "Failed to create venv: {}",
-            stderr
-        )));
-    }
-
-    log::debug!("Venv created at {:?}", venv_dir);
 
     Ok(())
 }
