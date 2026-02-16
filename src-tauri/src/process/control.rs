@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 
 use super::GRACEFUL_SHUTDOWN_TIMEOUT;
 use crate::error::{AppError, Result};
+#[cfg(target_os = "windows")]
+use crate::paths::{get_python_exe_path, get_python_runtime_dir};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExecutablePathMatch {
@@ -61,9 +63,14 @@ fn normalize_windows_path_for_compare(path: &Path) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn is_python_executable(path: &str) -> bool {
-    let filename = path.rsplit('\\').next().unwrap_or(path);
-    filename == "python.exe" || filename == "pythonw.exe"
+fn is_python_component_executable(path: &Path) -> bool {
+    let path_str = normalize_windows_path_for_compare(path);
+    ["py310", "py312"].iter().any(|runtime| {
+        let runtime_dir = get_python_runtime_dir(runtime);
+        let runtime_exe = get_python_exe_path(&runtime_dir);
+        let runtime_exe_str = normalize_windows_path_for_compare(&runtime_exe);
+        path_str == runtime_exe_str
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -76,11 +83,8 @@ fn executable_paths_match(expected: &Path, actual: &Path) -> bool {
     }
 
     // On Windows, venv python.exe is a launcher that may spawn the base Python
-    // from the components directory. Accept the components Python as a valid match.
-    if is_python_executable(&expected_str)
-        && is_python_executable(&actual_str)
-        && actual_str.contains("\\components\\")
-    {
+    // from the managed Python component runtime (py310/py312).
+    if is_python_component_executable(actual) {
         return true;
     }
 
