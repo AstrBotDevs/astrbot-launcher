@@ -4,8 +4,8 @@ import { SaveOutlined, DeleteOutlined, ReloadOutlined, ImportOutlined } from '@a
 import { api, BackupInfo } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { ConfirmModal } from '../components';
-import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
 
 const { Title, Text } = Typography;
@@ -15,10 +15,8 @@ export default function Backup() {
   const backups = useAppStore((s) => s.backups);
   const loading = useAppStore((s) => s.loading);
   const operations = useAppStore((s) => s.operations);
-  const startOperation = useAppStore((s) => s.startOperation);
-  const finishOperation = useAppStore((s) => s.finishOperation);
-  const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
+  const { runOperation } = useOperationRunner();
 
   const [createOpen, setCreateOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -29,98 +27,95 @@ export default function Backup() {
 
   const handleCreate = async (values: { instanceId: string }) => {
     const key = OPERATION_KEYS.backupCreate;
-    startOperation(key);
-    try {
-      await reloadSnapshot();
-      const { instances: latestInstances } = useAppStore.getState();
-      const latestInstance = latestInstances.find((i) => i.id === values.instanceId);
-      if (!latestInstance) {
-        message.warning('实例不存在或已被删除');
-        return;
-      }
-      if (latestInstance.state !== 'stopped') {
-        message.warning('请先停止实例再创建备份');
-        return;
-      }
+    await runOperation({
+      key,
+      reloadBefore: true,
+      task: async () => {
+        const { instances: latestInstances } = useAppStore.getState();
+        const latestInstance = latestInstances.find((i) => i.id === values.instanceId);
+        if (!latestInstance) {
+          message.warning('实例不存在或已被删除');
+          return SKIP_OPERATION;
+        }
+        if (latestInstance.state !== 'stopped') {
+          message.warning('请先停止实例再创建备份');
+          return SKIP_OPERATION;
+        }
 
-      await api.createBackup(values.instanceId);
-      await reloadSnapshot({ throwOnError: true });
-      message.success('备份创建成功');
-      setCreateOpen(false);
-      createForm.resetFields();
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(key);
-    }
+        await api.createBackup(values.instanceId);
+      },
+      onSuccess: () => {
+        message.success('备份创建成功');
+        setCreateOpen(false);
+        createForm.resetFields();
+      },
+    });
   };
 
   const handleRestore = async () => {
     if (!selectedBackup) return;
 
     const key = OPERATION_KEYS.backupRestore;
-    startOperation(key);
-    try {
-      await reloadSnapshot();
-      const { backups: latestBackups, instances: latestInstances } = useAppStore.getState();
-      if (!latestBackups.some((b) => b.path === selectedBackup.path)) {
-        message.warning('备份不存在或已被删除');
+    await runOperation({
+      key,
+      reloadBefore: true,
+      task: async () => {
+        const { backups: latestBackups, instances: latestInstances } = useAppStore.getState();
+        if (!latestBackups.some((b) => b.path === selectedBackup.path)) {
+          message.warning('备份不存在或已被删除');
+          setRestoreOpen(false);
+          setSelectedBackup(null);
+          return SKIP_OPERATION;
+        }
+
+        const targetInstance = latestInstances.find(
+          (i) => i.id === selectedBackup.metadata.instance_id
+        );
+        if (!targetInstance) {
+          message.warning('原实例不存在或已被删除');
+          setRestoreOpen(false);
+          setSelectedBackup(null);
+          return SKIP_OPERATION;
+        }
+        if (targetInstance.state !== 'stopped') {
+          message.warning('请先停止实例再恢复备份');
+          return SKIP_OPERATION;
+        }
+
+        await api.restoreBackup(selectedBackup.path);
+      },
+      onSuccess: () => {
+        message.success('备份恢复成功');
         setRestoreOpen(false);
         setSelectedBackup(null);
-        return;
-      }
-
-      const targetInstance = latestInstances.find(
-        (i) => i.id === selectedBackup.metadata.instance_id
-      );
-      if (!targetInstance) {
-        message.warning('原实例不存在或已被删除');
-        setRestoreOpen(false);
-        setSelectedBackup(null);
-        return;
-      }
-      if (targetInstance.state !== 'stopped') {
-        message.warning('请先停止实例再恢复备份');
-        return;
-      }
-
-      await api.restoreBackup(selectedBackup.path);
-      await reloadSnapshot({ throwOnError: true });
-      message.success('备份恢复成功');
-      setRestoreOpen(false);
-      setSelectedBackup(null);
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(key);
-    }
+      },
+    });
   };
 
   const handleDelete = async () => {
     if (!backupToDelete) return;
 
     const key = OPERATION_KEYS.backupDelete;
-    startOperation(key);
-    try {
-      await reloadSnapshot();
-      const { backups: latestBackups } = useAppStore.getState();
-      if (!latestBackups.some((b) => b.path === backupToDelete.path)) {
-        message.info('备份已删除');
+    await runOperation({
+      key,
+      reloadBefore: true,
+      task: async () => {
+        const { backups: latestBackups } = useAppStore.getState();
+        if (!latestBackups.some((b) => b.path === backupToDelete.path)) {
+          message.info('备份已删除');
+          setDeleteOpen(false);
+          setBackupToDelete(null);
+          return SKIP_OPERATION;
+        }
+
+        await api.deleteBackup(backupToDelete.path);
+      },
+      onSuccess: () => {
+        message.success('备份已删除');
         setDeleteOpen(false);
         setBackupToDelete(null);
-        return;
-      }
-
-      await api.deleteBackup(backupToDelete.path);
-      await reloadSnapshot({ throwOnError: true });
-      message.success('备份已删除');
-      setDeleteOpen(false);
-      setBackupToDelete(null);
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(key);
-    }
+      },
+    });
   };
 
   const openRestore = (backup: BackupInfo) => {

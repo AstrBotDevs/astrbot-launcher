@@ -69,10 +69,7 @@ fn now_ms() -> u64 {
         .unwrap_or_default()
         .as_millis();
 
-    match u64::try_from(elapsed) {
-        Ok(ms) => ms,
-        Err(_) => u64::MAX,
-    }
+    u64::try_from(elapsed).unwrap_or(u64::MAX)
 }
 
 fn is_cache_expired(fetched_at_ms: u64) -> bool {

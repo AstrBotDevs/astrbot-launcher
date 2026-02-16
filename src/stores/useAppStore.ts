@@ -37,7 +37,6 @@ interface AppState {
 
   // Actions
   hydrateSnapshot: (snapshot: AppSnapshot) => void;
-  refresh: () => Promise<void>;
   reloadSnapshot: (options?: { throwOnError?: boolean }) => Promise<void>;
   rebuildSnapshotFromDisk: (options?: { throwOnError?: boolean }) => Promise<void>;
   startOperation: (key: string) => void;
@@ -96,11 +95,6 @@ export const useAppStore = create<AppState>((set, get) => {
         config: snapshot.config,
         initialized: true,
       });
-    },
-
-    // Actions
-    refresh: async () => {
-      await loadSnapshot(api.getAppSnapshot);
     },
 
     reloadSnapshot: async (options?: { throwOnError?: boolean }) => {

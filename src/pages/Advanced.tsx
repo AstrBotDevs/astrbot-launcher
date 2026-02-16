@@ -5,6 +5,7 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import {
   ConfirmModal,
   GeneralSettingsCard,
@@ -40,8 +41,7 @@ export default function Advanced() {
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
   const operations = useAppStore((s) => s.operations);
-  const startOperation = useAppStore((s) => s.startOperation);
-  const finishOperation = useAppStore((s) => s.finishOperation);
+  const { runOperation } = useOperationRunner();
 
   // Source settings
   const [githubProxy, setGithubProxy] = useState('');
@@ -73,6 +73,7 @@ export default function Advanced() {
 
   useEffect(() => {
     if (config && !initialized) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setGithubProxy(config.github_proxy);
       setPypiMirror(config.pypi_mirror);
       setNodejsMirror(config.nodejs_mirror);
@@ -131,19 +132,14 @@ export default function Advanced() {
     successMessage,
     reloadBefore = false,
   }: SaveSettingOptions) => {
-    startOperation(key);
-    try {
-      if (reloadBefore) {
-        await reloadSnapshot();
-      }
-      await save();
-      await reloadSnapshot({ throwOnError: true });
-      message.success(successMessage);
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(key);
-    }
+    await runOperation({
+      key,
+      reloadBefore,
+      task: save,
+      onSuccess: () => {
+        message.success(successMessage);
+      },
+    });
   };
 
   const handleSaveGithubProxy = async () => {
@@ -182,18 +178,18 @@ export default function Advanced() {
 
   const handleUseUvForDepsChange = async (checked: boolean) => {
     const key = OPERATION_KEYS.advancedSaveUseUvForDeps;
-    startOperation(key);
-    try {
-      await reloadSnapshot();
-      await api.saveUseUvForDeps(checked);
-      await reloadSnapshot({ throwOnError: true });
-      message.success('设置已保存');
-    } catch (error) {
-      handleApiError(error);
-      await reloadSnapshot();
-    } finally {
-      finishOperation(key);
-    }
+    await runOperation({
+      key,
+      reloadBefore: true,
+      task: () => api.saveUseUvForDeps(checked),
+      onSuccess: () => {
+        message.success('设置已保存');
+      },
+      onError: async (error) => {
+        handleApiError(error);
+        await reloadSnapshot();
+      },
+    });
   };
 
   const handleClearInstance = async ({
@@ -207,33 +203,32 @@ export default function Advanced() {
     if (!selectedId) return;
 
     const key = operationKey(selectedId);
-    startOperation(key);
-    try {
-      await reloadSnapshot();
-      const { instances: latestInstances } = useAppStore.getState();
-      const latestInstance = latestInstances.find((i) => i.id === selectedId);
-      if (!latestInstance) {
-        message.warning('实例不存在或已被删除');
+    await runOperation({
+      key,
+      reloadBefore: true,
+      task: async () => {
+        const { instances: latestInstances } = useAppStore.getState();
+        const latestInstance = latestInstances.find((i) => i.id === selectedId);
+        if (!latestInstance) {
+          message.warning('实例不存在或已被删除');
+          clearSelection();
+          setConfirmModal(null);
+          return SKIP_OPERATION;
+        }
+
+        if (requireStoppedMessage && latestInstance.state !== 'stopped') {
+          message.warning(requireStoppedMessage);
+          return SKIP_OPERATION;
+        }
+
+        await clearAction(selectedId);
+      },
+      onSuccess: () => {
+        message.success(successMessage);
         clearSelection();
         setConfirmModal(null);
-        return;
-      }
-
-      if (requireStoppedMessage && latestInstance.state !== 'stopped') {
-        message.warning(requireStoppedMessage);
-        return;
-      }
-
-      await clearAction(selectedId);
-      await reloadSnapshot({ throwOnError: true });
-      message.success(successMessage);
-      clearSelection();
-      setConfirmModal(null);
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(key);
-    }
+      },
+    });
   };
 
   // Actions

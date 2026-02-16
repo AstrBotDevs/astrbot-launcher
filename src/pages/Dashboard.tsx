@@ -19,6 +19,7 @@ import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
 import { useInstanceUpgrade } from '../hooks';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import {
   InstanceStatusTag,
@@ -51,11 +52,10 @@ export default function Dashboard() {
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
   const operations = useAppStore((s) => s.operations);
-  const startOperation = useAppStore((s) => s.startOperation);
-  const finishOperation = useAppStore((s) => s.finishOperation);
   const deployState = useAppStore((s) => s.deployState);
   const startDeploy = useAppStore((s) => s.startDeploy);
   const closeDeploy = useAppStore((s) => s.closeDeploy);
+  const { runOperation } = useOperationRunner();
 
   // Derived deploy values
   const deployProgress = deployState?.progress ?? null;
@@ -86,6 +86,7 @@ export default function Dashboard() {
     if (editingInstance && editFormVersion && editFormVersion !== editingInstance.version) {
       api.compareVersions(editFormVersion, editingInstance.version).then(setEditVersionCmp);
     } else {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditVersionCmp(0);
     }
   }, [editFormVersion, editingInstance]);
@@ -96,6 +97,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!config?.check_instance_update || instances.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInstanceUpdateMap({});
       return;
     }
@@ -198,33 +200,34 @@ export default function Dashboard() {
       onSkipped,
       onError,
     }: InstanceActionOptions<T>) => {
-      const operationKey = OPERATION_KEYS.instance(id);
-      startOperation(operationKey);
-      try {
-        await reloadSnapshot();
-        const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === id);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
-          onSkipped?.();
-          return;
-        }
-        if (precheck && !precheck(latestInstance)) {
-          onSkipped?.();
-          return;
-        }
+      await runOperation({
+        key: OPERATION_KEYS.instance(id),
+        reloadBefore: true,
+        task: async () => {
+          const { instances: latestInstances } = useAppStore.getState();
+          const latestInstance = latestInstances.find((i) => i.id === id);
+          if (!latestInstance) {
+            message.warning('实例不存在或已被删除');
+            onSkipped?.();
+            return SKIP_OPERATION;
+          }
+          if (precheck && !precheck(latestInstance)) {
+            onSkipped?.();
+            return SKIP_OPERATION;
+          }
 
-        const result = await action(id);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(successMessage(result));
-      } catch (error) {
-        handleApiError(error);
-        onError?.();
-      } finally {
-        finishOperation(operationKey);
-      }
+          return action(id);
+        },
+        onSuccess: (result) => {
+          message.success(successMessage(result));
+        },
+        onError: (error) => {
+          handleApiError(error);
+          onError?.();
+        },
+      });
     },
-    [startOperation, finishOperation, reloadSnapshot]
+    [runOperation]
   );
 
   const handleStart = useCallback(
@@ -285,29 +288,27 @@ export default function Dashboard() {
   const handleDelete = useCallback(async () => {
     if (!instanceToDelete) return;
 
-    const operationKey = OPERATION_KEYS.deleteInstance;
-    startOperation(operationKey);
-    try {
-      await reloadSnapshot();
-      const { instances: latestInstances } = useAppStore.getState();
-      if (!latestInstances.some((i) => i.id === instanceToDelete.id)) {
-        message.info('实例已删除');
+    await runOperation({
+      key: OPERATION_KEYS.deleteInstance,
+      reloadBefore: true,
+      task: async () => {
+        const { instances: latestInstances } = useAppStore.getState();
+        if (!latestInstances.some((i) => i.id === instanceToDelete.id)) {
+          message.info('实例已删除');
+          setDeleteOpen(false);
+          setInstanceToDelete(null);
+          return SKIP_OPERATION;
+        }
+
+        await api.deleteInstance(instanceToDelete.id);
+      },
+      onSuccess: () => {
+        message.success(STATUS_MESSAGES.INSTANCE_DELETED);
         setDeleteOpen(false);
         setInstanceToDelete(null);
-        return;
-      }
-
-      await api.deleteInstance(instanceToDelete.id);
-      await reloadSnapshot({ throwOnError: true });
-      message.success(STATUS_MESSAGES.INSTANCE_DELETED);
-      setDeleteOpen(false);
-      setInstanceToDelete(null);
-    } catch (error) {
-      handleApiError(error);
-    } finally {
-      finishOperation(operationKey);
-    }
-  }, [instanceToDelete, startOperation, finishOperation, reloadSnapshot]);
+      },
+    });
+  }, [instanceToDelete, runOperation]);
 
   const handleOpen = useCallback(
     (instance: InstanceStatus) => {

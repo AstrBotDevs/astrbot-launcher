@@ -11,10 +11,10 @@ import { api } from '../api';
 import { message } from '../antdStatic';
 import { useReleases } from '../hooks';
 import { useVersions } from '../hooks/useVersions';
+import { useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import { ConfirmModal } from '../components';
 import { OPERATION_KEYS } from '../constants';
-import { handleApiError } from '../utils';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -24,11 +24,9 @@ export default function Versions() {
   const config = useAppStore((s) => s.config);
   const appLoading = useAppStore((s) => s.loading);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
-  const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const operations = useAppStore((s) => s.operations);
-  const startOperation = useAppStore((s) => s.startOperation);
-  const finishOperation = useAppStore((s) => s.finishOperation);
   const downloadProgress = useAppStore((s) => s.downloadProgress);
+  const { runOperation } = useOperationRunner();
 
   const [detailRelease, setDetailRelease] = useState<GitHubRelease | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -60,35 +58,29 @@ export default function Versions() {
   const handleInstallComponent = useCallback(
     async (componentId: string) => {
       const key = OPERATION_KEYS.installComponent(componentId);
-      startOperation(key);
-      try {
-        const result = await api.installComponent(componentId);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(result);
-      } catch (error) {
-        handleApiError(error);
-      } finally {
-        finishOperation(key);
-      }
+      await runOperation({
+        key,
+        task: () => api.installComponent(componentId),
+        onSuccess: (result) => {
+          message.success(result);
+        },
+      });
     },
-    [startOperation, finishOperation, reloadSnapshot]
+    [runOperation]
   );
 
   const handleReinstallComponent = useCallback(
     async (componentId: string) => {
       const key = OPERATION_KEYS.reinstallComponent(componentId);
-      startOperation(key);
-      try {
-        const result = await api.reinstallComponent(componentId);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(result);
-      } catch (error) {
-        handleApiError(error);
-      } finally {
-        finishOperation(key);
-      }
+      await runOperation({
+        key,
+        task: () => api.reinstallComponent(componentId),
+        onSuccess: (result) => {
+          message.success(result);
+        },
+      });
     },
-    [startOperation, finishOperation, reloadSnapshot]
+    [runOperation]
   );
 
   const isInstalled = (tagName: string) => versions.some((v) => v.version === tagName);
