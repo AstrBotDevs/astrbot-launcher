@@ -51,11 +51,19 @@ pub async fn install_component(
     id: ComponentId,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
-    match id {
+    log::info!("Installing component {:?}", id);
+    let result = match id {
         ComponentId::Python => python::install_component(client, app_handle).await,
         ComponentId::Nodejs => nodejs::install_nodejs(client, app_handle).await,
         ComponentId::UV => uv::install_uv(client, app_handle).await,
+    };
+
+    match &result {
+        Ok(_) => log::info!("Component {:?} installed successfully", id),
+        Err(e) => log::error!("Failed to install component {:?}: {}", id, e),
     }
+
+    result
 }
 
 /// Reinstall a component by id, dispatching to the appropriate sub-module.

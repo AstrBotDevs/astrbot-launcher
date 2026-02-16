@@ -6,6 +6,7 @@ import {
   DesktopOutlined,
   CloudDownloadOutlined,
   SaveOutlined,
+  FileTextOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import { ErrorBoundary, TitleBar } from './components';
@@ -14,6 +15,7 @@ import { useAppStore, initEventListeners, cleanupEventListeners } from './stores
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Versions = lazy(() => import('./pages/Versions'));
 const Backup = lazy(() => import('./pages/Backup'));
+const Logs = lazy(() => import('./pages/Logs'));
 const Advanced = lazy(() => import('./pages/Advanced'));
 const WebUIView = lazy(() => import('./pages/WebUIView'));
 import './App.css';
@@ -44,6 +46,11 @@ function AppLayout() {
       key: '/backup',
       icon: <SaveOutlined />,
       label: '备份',
+    },
+    {
+      key: '/logs',
+      icon: <FileTextOutlined />,
+      label: '日志',
     },
     {
       key: '/advanced',
@@ -78,6 +85,7 @@ function AppLayout() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/versions" element={<Versions />} />
                 <Route path="/backup" element={<Backup />} />
+                <Route path="/logs" element={<Logs />} />
                 <Route path="/advanced" element={<Advanced />} />
               </Routes>
             </ErrorBoundary>

@@ -92,6 +92,7 @@ fn create_backup_archive(
 /// When `auto_generated` is `true` the backup is tagged in its metadata and
 /// hidden from the user-facing backup list.
 pub fn create_backup(instance_id: &str, auto_generated: bool) -> Result<String> {
+    log::info!("Creating backup for instance {}", instance_id);
     let config = load_config()?;
     let instance = config
         .instances
@@ -239,6 +240,7 @@ fn read_backup_metadata_zip(backup_path: &Path) -> Result<BackupMetadata> {
 
 /// Restore a backup to its original instance
 pub fn restore_backup(backup_path: &str) -> Result<()> {
+    log::info!("Restoring backup from {:?}", backup_path);
     let backup_path = resolve_backup_path(backup_path, true)?;
 
     // Read metadata
@@ -318,6 +320,7 @@ fn extract_backup_to_instance(
 
 /// Delete a backup
 pub fn delete_backup(backup_path: &str) -> Result<()> {
+    log::info!("Deleting backup {:?}", backup_path);
     let path = resolve_backup_path(backup_path, false)?;
     if path.exists() {
         fs::remove_file(&path)

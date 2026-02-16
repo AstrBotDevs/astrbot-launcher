@@ -55,6 +55,7 @@ pub async fn deploy_instance_with_version(
     app_handle: &AppHandle,
 ) -> Result<()> {
     validate_instance_id(instance_id)?;
+    log::debug!("Deploying instance {} with version {}", instance_id, version);
 
     let config = load_config()?;
     let installed = config
@@ -65,6 +66,7 @@ pub async fn deploy_instance_with_version(
 
     let zip_path = std::path::PathBuf::from(&installed.zip_path);
     if !zip_path.exists() {
+        log::error!("Version zip not found: {:?}", zip_path);
         return Err(AppError::io(format!(
             "Version zip file not found: {:?}",
             zip_path
@@ -157,7 +159,10 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
         .args(["-m", "venv", &venv_dir_arg])
         .output()
         .await
-        .map_err(|e| AppError::python(format!("Failed to create venv: {}", e)))?;
+        .map_err(|e| {
+            log::error!("Failed to create venv: {}", e);
+            AppError::python(format!("Failed to create venv: {}", e))
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -166,6 +171,8 @@ async fn create_venv(venv_dir: &Path, version: &str) -> Result<()> {
             stderr
         )));
     }
+
+    log::debug!("Venv created at {:?}", venv_dir);
 
     Ok(())
 }

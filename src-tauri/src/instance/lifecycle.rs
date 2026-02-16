@@ -12,6 +12,7 @@ use super::deploy::{deploy_instance, emit_progress};
 use crate::component;
 use crate::config::load_config;
 use crate::error::{AppError, Result};
+use crate::log_channel;
 use crate::paths::{
     get_instance_core_dir, get_instance_venv_dir, get_uv_cache_dir, get_venv_python,
 };
@@ -37,6 +38,7 @@ async fn resolve_child_executable_path(
     // Kill the orphaned child before returning — tokio's Child does not
     // kill on drop (unlike std), so without this the process leaks.
     let _ = child.kill().await;
+    log::error!("Failed to resolve executable path for PID {}", pid);
     Err(AppError::process(format!(
         "Failed to resolve executable path for PID {}",
         pid
@@ -50,6 +52,7 @@ pub async fn start_instance(
     process_manager: Arc<ProcessManager>,
 ) -> Result<u16> {
     validate_instance_id(instance_id)?;
+    log::debug!("Starting instance {}", instance_id);
 
     if process_manager.is_running(instance_id).await {
         return Err(AppError::instance_running());
@@ -138,7 +141,10 @@ pub async fn start_instance(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| AppError::process(format!("Failed to start instance: {}", e)))?;
+        .map_err(|e| {
+            log::error!("Failed to spawn instance {}: {}", instance_id, e);
+            AppError::process(format!("Failed to start instance: {}", e))
+        })?;
 
     let pid = child
         .id()
@@ -169,7 +175,7 @@ pub async fn start_instance(
     // Log stderr in background
     tokio::spawn(async move {
         while let Ok(Some(line)) = stderr_reader.next_line().await {
-            log::error!("[AstrBot {} stderr] {}", instance_id_stderr, line);
+            log_channel::emit_log(&instance_id_stderr, "error", &line);
         }
     });
 
@@ -192,7 +198,7 @@ pub async fn start_instance(
 
     tokio::spawn(async move {
         while let Ok(Some(line)) = stdout_reader.next_line().await {
-            log::info!("[AstrBot {} stdout] {}", instance_id_stdout, line);
+            log_channel::emit_log(&instance_id_stdout, "info", &line);
             if line.contains("AstrBot 启动完成") {
                 if let Some(sender) = tx.take() {
                     let _ = sender.send(());
@@ -248,6 +254,7 @@ pub async fn start_instance(
 /// before returning.
 pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManager>) -> Result<()> {
     validate_instance_id(instance_id)?;
+    log::debug!("Stopping instance {}", instance_id);
 
     let info = process_manager
         .remove(instance_id)
@@ -269,6 +276,7 @@ pub async fn restart_instance(
     process_manager: Arc<ProcessManager>,
 ) -> Result<u16> {
     validate_instance_id(instance_id)?;
+    log::debug!("Restarting instance {}", instance_id);
 
     if process_manager.is_running(instance_id).await {
         stop_instance(instance_id, Arc::clone(&process_manager)).await?;

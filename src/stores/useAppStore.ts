@@ -11,9 +11,11 @@ import type {
   DeployState,
   ComponentStatus,
   DownloadProgress,
+  LogEntry,
 } from '../types';
 import { handleApiError } from '../utils';
 import { MODAL_CLOSE_DELAY_MS } from '../constants';
+import { useLogStore } from './useLogStore';
 
 interface AppState {
   // Data
@@ -214,6 +216,11 @@ export async function initEventListeners() {
         }
       });
       localUnlistenFns.push(unlistenDownload);
+
+      const unlistenLogEntry = await listen<LogEntry>('log-entry', (event) => {
+        useLogStore.getState().addLogEntry(event.payload);
+      });
+      localUnlistenFns.push(unlistenLogEntry);
 
       unlistenFns = localUnlistenFns;
       listenersInitialized = true;

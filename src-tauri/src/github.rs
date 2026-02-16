@@ -148,6 +148,8 @@ pub async fn fetch_releases(client: &Client, force_refresh: bool) -> Result<Vec<
     if !force_refresh {
         if let Some(cache) = &cached {
             if !is_cache_expired(cache.fetched_at_ms) {
+                let age = now_ms().saturating_sub(cache.fetched_at_ms);
+                log::debug!("Using cached releases (age: {}ms)", age);
                 return Ok(cache.releases.clone());
             }
         }
@@ -155,6 +157,7 @@ pub async fn fetch_releases(client: &Client, force_refresh: bool) -> Result<Vec<
 
     match fetch_releases_remote(client).await {
         Ok(releases) => {
+            log::debug!("Fetched {} releases from GitHub", releases.len());
             let cache = ReleasesCache {
                 releases: releases.clone(),
                 fetched_at_ms: now_ms(),

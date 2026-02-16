@@ -95,6 +95,7 @@ pub(super) fn is_dashboard_enabled(instance_id: &str) -> bool {
 
 /// Create a new instance.
 pub fn create_instance(name: &str, version: &str, port: u16) -> Result<()> {
+    log::info!("Creating instance '{}' with version {}", name, version);
     let config = load_config()?;
     ensure_version_installed(&config, version)?;
 
@@ -128,6 +129,7 @@ pub async fn delete_instance(
     process_manager: Arc<ProcessManager>,
 ) -> Result<()> {
     validate_instance_id(instance_id)?;
+    log::info!("Deleting instance {}", instance_id);
 
     if process_manager.is_running(instance_id).await {
         return Err(AppError::instance_running());
@@ -188,6 +190,7 @@ pub async fn update_instance(
     };
 
     if let Some(ref new_version) = new_version {
+        log::info!("Updating instance {} to version {}", instance_id, new_version);
         // Version change
 
         // Backup

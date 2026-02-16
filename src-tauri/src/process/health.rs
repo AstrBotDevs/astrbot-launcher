@@ -30,9 +30,15 @@ pub(super) async fn check_health(client: &Client, port: u16) -> bool {
             }
             match resp.json::<StartTimeResponse>().await {
                 Ok(data) => data.status == "ok",
-                Err(_) => false,
+                Err(e) => {
+                    log::debug!("Health check response parse failed for port {}: {}", port, e);
+                    false
+                }
             }
         }
-        Err(_) => false,
+        Err(e) => {
+            log::debug!("Health check failed for port {}: {}", port, e);
+            false
+        }
     }
 }

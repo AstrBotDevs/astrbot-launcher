@@ -101,6 +101,7 @@ pub async fn download_file(
     dest: &Path,
     opts: Option<&DownloadOptions<'_>>,
 ) -> Result<()> {
+    log::debug!("Downloading {} -> {:?}", url, dest);
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(e.to_string()))?;
     }
@@ -199,6 +200,7 @@ pub async fn download_version(
     app_handle: Option<&AppHandle>,
 ) -> Result<()> {
     let version = &release.tag_name;
+    log::info!("Downloading version {}", version);
     let versions_dir = get_versions_dir();
     let zip_path = resolve_version_zip_path(version)?;
 
@@ -253,6 +255,7 @@ pub async fn download_version(
 
 /// Unregister and remove an AstrBot version archive.
 pub fn remove_version(version: &str) -> Result<()> {
+    log::info!("Removing version {}", version);
     let zip_path = resolve_version_zip_path(version)?;
 
     let version_owned = version.to_string();

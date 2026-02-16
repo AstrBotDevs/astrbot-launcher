@@ -161,6 +161,13 @@ export interface DeployState {
   progress: DeployProgress | null;
 }
 
+export interface LogEntry {
+  source: string;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  message: string;
+  timestamp: string;
+}
+
 // ========================================
 // UI Types
 // ========================================

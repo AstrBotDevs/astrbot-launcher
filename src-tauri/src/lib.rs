@@ -7,6 +7,7 @@ mod download;
 mod error;
 mod github;
 mod instance;
+mod log_channel;
 mod paths;
 mod platform;
 mod process;
@@ -31,6 +32,7 @@ use commands::AppState;
 use config::{load_config, with_config_mut};
 pub use error::{AppError, ErrorKind, Result};
 use instance::ProcessManager;
+use log_channel::LogEntry;
 
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -48,6 +50,17 @@ pub fn run() {
     let process_manager = Arc::new(ProcessManager::new());
     let pm_for_exit = Arc::clone(&process_manager);
     let pm_for_monitor = Arc::clone(&process_manager);
+    let dispatch_sender = log_channel::init_log_channel();
+    let dispatch = tauri_plugin_log::fern::Dispatch::new().chain(
+        tauri_plugin_log::fern::Output::call(move |record| {
+            let _ = dispatch_sender.send(LogEntry {
+                source: "system".to_string(),
+                level: record.level().to_string().to_lowercase(),
+                message: record.args().to_string(),
+                timestamp: chrono::Local::now().to_rfc3339(),
+            });
+        }),
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -64,12 +77,9 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .targets([
                     Target::new(TargetKind::Stdout),
-                    Target::new(TargetKind::Webview),
-                    Target::new(TargetKind::LogDir {
-                        file_name: Some("astrbot-launcher".to_string()),
-                    }),
+                    Target::new(TargetKind::Dispatch(dispatch)),
                 ])
-                .level(log::LevelFilter::Info)
+                .level(log::LevelFilter::Debug)
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
@@ -117,6 +127,20 @@ pub fn run() {
                         Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                             log::warn!("Runtime event listener lagged, skipped {} events", skipped);
                         }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            let app_handle_for_logs = app.handle().clone();
+            let mut log_rx = log_channel::get_log_sender().subscribe();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match log_rx.recv().await {
+                        Ok(entry) => {
+                            let _ = app_handle_for_logs.emit("log-entry", entry);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                     }
                 }

@@ -134,6 +134,8 @@ pub(super) fn graceful_signal(pid: u32) -> Result<()> {
     use std::os::windows::process::CommandExt as _;
     use windows::Win32::System::Threading::CREATE_NO_WINDOW;
 
+    log::debug!("Sending graceful signal to PID {}", pid);
+
     let exe_dir = std::env::current_exe()
         .map_err(|e| AppError::process(format!("Failed to get current exe path: {e}")))?
         .parent()
@@ -158,6 +160,8 @@ pub(super) fn graceful_signal(pid: u32) -> Result<()> {
 /// Send a graceful shutdown signal to a process.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(super) fn graceful_signal(pid: u32) -> Result<()> {
+    log::debug!("Sending graceful signal to PID {}", pid);
+
     let raw_pid = super::libc_api::to_pid_t(pid)
         .map_err(|e| AppError::process(format!("PID {pid} is out of range for pid_t: {e}")))?;
 
@@ -172,6 +176,7 @@ pub fn force_kill(pid: u32) -> Result<()> {
         log::debug!("Process {} is not alive, skipping force kill", pid);
         return Ok(());
     }
+    log::warn!("Force killing PID {}", pid);
 
     let output = std::process::Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/T", "/F"])
@@ -208,6 +213,7 @@ pub fn force_kill(pid: u32) -> Result<()> {
         log::debug!("Process {} is not alive, skipping force kill", pid);
         return Ok(());
     }
+    log::warn!("Force killing PID {}", pid);
 
     let target = super::libc_api::to_pid_t(pid)
         .map_err(|e| AppError::process(format!("PID {pid} is out of range for pid_t: {e}")))?;

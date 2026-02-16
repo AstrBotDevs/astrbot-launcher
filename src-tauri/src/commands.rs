@@ -128,17 +128,20 @@ pub async fn save_github_proxy(github_proxy: String, state: State<'_, AppState>)
 
 #[tauri::command]
 pub async fn save_pypi_mirror(pypi_mirror: String, state: State<'_, AppState>) -> Result<()> {
+    let normalized_default_index = component::normalize_default_index(&pypi_mirror);
+    let check_url = format!("{}/", normalized_default_index);
+
     // Test connectivity first
-    let base = if pypi_mirror.is_empty() {
-        "https://pypi.org".to_string()
-    } else {
-        pypi_mirror.trim_end_matches('/').to_string()
-    };
-    let url = format!("{}/simple/", base);
-    download::check_url(&state.client, &url).await?;
+    download::check_url(&state.client, &check_url).await?;
+
     // Test passed, save
+    let normalized_for_save = if pypi_mirror.trim().is_empty() {
+        String::new()
+    } else {
+        normalized_default_index
+    };
     with_config_mut(move |config| {
-        config.pypi_mirror = pypi_mirror;
+        config.pypi_mirror = normalized_for_save;
         Ok(())
     })
 }

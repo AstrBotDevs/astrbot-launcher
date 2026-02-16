@@ -96,3 +96,12 @@ body {
   background: #c50f1f;
   color: #fff;
 }
+
+.log-message-ansi {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

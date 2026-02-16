@@ -39,7 +39,6 @@ export function EditInstanceModal({
     }
 
     form.resetFields();
-    setVersionCmp(0);
   }, [open, instance, form]);
 
   useEffect(() => {

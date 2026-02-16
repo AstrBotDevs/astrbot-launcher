@@ -14,6 +14,7 @@ static CONFIG_CACHE: OnceLock<RwLock<Arc<AppConfig>>> = OnceLock::new();
 fn load_config_from_disk() -> Result<AppConfig> {
     let path = config_path();
     if !path.exists() {
+        log::debug!("Config file not found, creating default");
         let config = AppConfig::default();
         save_config_to_disk(&config)?;
         return Ok(config);
@@ -25,7 +26,10 @@ fn load_config_from_disk() -> Result<AppConfig> {
 fn save_config_to_disk(config: &AppConfig) -> Result<()> {
     ensure_data_dirs()?;
     let content = toml::to_string_pretty(config).map_err(|e| AppError::config(e.to_string()))?;
-    fs::write(config_path(), content).map_err(|e| AppError::config(e.to_string()))
+    fs::write(config_path(), content).map_err(|e| {
+        log::error!("Failed to write config to disk: {}", e);
+        AppError::config(e.to_string())
+    })
 }
 
 fn get_config_cache() -> Result<&'static RwLock<Arc<AppConfig>>> {
@@ -60,6 +64,7 @@ where
     save_config_to_disk(&updated)?;
 
     *write_lock_recover(cache, "CONFIG_CACHE") = Arc::new(updated);
+    log::debug!("Config saved");
 
     Ok(result)
 }
