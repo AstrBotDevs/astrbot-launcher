@@ -32,20 +32,3 @@ export function handleApiError(error: unknown, fallbackMessage = '操作失败')
   const msg = getErrorMessage(error);
   message.error(msg || fallbackMessage);
 }
-
-/**
- * Wrap an async function with error handling.
- */
-export function withErrorHandling<T extends (...args: unknown[]) => Promise<unknown>>(
-  fn: T,
-  fallbackMessage?: string
-): (...args: Parameters<T>) => Promise<ReturnType<T> | undefined> {
-  return async (...args: Parameters<T>) => {
-    try {
-      return (await fn(...args)) as ReturnType<T>;
-    } catch (error) {
-      handleApiError(error, fallbackMessage);
-      return undefined;
-    }
-  };
-}

@@ -312,6 +312,7 @@ export default function Backup() {
           </>
         }
         loading={operations[OPERATION_KEYS.backupDelete]}
+        lockOnLoading
         onConfirm={handleDelete}
         onCancel={() => {
           setDeleteOpen(false);

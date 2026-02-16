@@ -49,51 +49,14 @@ interface AppState {
   clearDownloadProgress: (id: string) => void;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  // Initial state
-  instances: [],
-  versions: [],
-  backups: [],
-  components: [],
-  config: null,
-  loading: false,
-  initialized: false,
-  operations: {},
-  deployState: null,
-  downloadProgress: {},
-
-  hydrateSnapshot: (snapshot: AppSnapshot) => {
-    set({
-      instances: snapshot.instances,
-      versions: snapshot.versions,
-      backups: snapshot.backups,
-      components: snapshot.components.components,
-      config: snapshot.config,
-      initialized: true,
-    });
-  },
-
-  // Actions
-  refresh: async () => {
+export const useAppStore = create<AppState>((set, get) => {
+  const loadSnapshot = async (
+    fetchSnapshot: () => Promise<AppSnapshot>,
+    options?: { throwOnError?: boolean }
+  ) => {
     set({ loading: true });
     try {
-      const snapshot = await api.getAppSnapshot();
-      get().hydrateSnapshot(snapshot);
-    } catch (e: unknown) {
-      const msg = getErrorMessage(e);
-      if (message?.error) {
-        message.error(msg);
-      } else {
-        console.error(msg);
-      }
-    }
-    set({ loading: false });
-  },
-
-  reloadSnapshot: async (options?: { throwOnError?: boolean }) => {
-    set({ loading: true });
-    try {
-      const snapshot = await api.getAppSnapshot();
+      const snapshot = await fetchSnapshot();
       get().hydrateSnapshot(snapshot);
     } catch (e: unknown) {
       if (options?.throwOnError) {
@@ -106,68 +69,87 @@ export const useAppStore = create<AppState>((set, get) => ({
       } else {
         console.error(msg);
       }
+    } finally {
+      set({ loading: false });
     }
-    set({ loading: false });
-  },
+  };
 
-  rebuildSnapshotFromDisk: async (options?: { throwOnError?: boolean }) => {
-    set({ loading: true });
-    try {
-      const snapshot = await api.rebuildAppSnapshot();
-      get().hydrateSnapshot(snapshot);
-    } catch (e: unknown) {
-      if (options?.throwOnError) {
-        throw e;
-      }
+  return {
+    // Initial state
+    instances: [],
+    versions: [],
+    backups: [],
+    components: [],
+    config: null,
+    loading: false,
+    initialized: false,
+    operations: {},
+    deployState: null,
+    downloadProgress: {},
 
-      const msg = getErrorMessage(e);
-      if (message?.error) {
-        message.error(msg);
-      } else {
-        console.error(msg);
-      }
-    }
-    set({ loading: false });
-  },
+    hydrateSnapshot: (snapshot: AppSnapshot) => {
+      set({
+        instances: snapshot.instances,
+        versions: snapshot.versions,
+        backups: snapshot.backups,
+        components: snapshot.components.components,
+        config: snapshot.config,
+        initialized: true,
+      });
+    },
 
-  startOperation: (key: string) => {
-    set((state) => ({ operations: { ...state.operations, [key]: true } }));
-  },
+    // Actions
+    refresh: async () => {
+      await loadSnapshot(api.getAppSnapshot);
+    },
 
-  finishOperation: (key: string) => {
-    set((state) => {
-      const next = { ...state.operations };
-      delete next[key];
-      return { operations: next };
-    });
-  },
+    reloadSnapshot: async (options?: { throwOnError?: boolean }) => {
+      await loadSnapshot(api.getAppSnapshot, options);
+    },
 
-  isOperationActive: (key: string) => {
-    return get().operations[key] ?? false;
-  },
+    rebuildSnapshotFromDisk: async (options?: { throwOnError?: boolean }) => {
+      await loadSnapshot(api.rebuildAppSnapshot, options);
+    },
 
-  startDeploy: (instanceName: string, type: 'start' | 'upgrade' | 'downgrade') => {
-    set({ deployState: { instanceName, deployType: type, progress: null } });
-  },
+    startOperation: (key: string) => {
+      set((state) => ({ operations: { ...state.operations, [key]: true } }));
+    },
 
-  setDeployProgress: (progress: DeployProgress | null) => {
-    set((state) => ({
-      deployState: state.deployState ? { ...state.deployState, progress } : null,
-    }));
-  },
+    finishOperation: (key: string) => {
+      set((state) => {
+        const next = { ...state.operations };
+        delete next[key];
+        return { operations: next };
+      });
+    },
 
-  closeDeploy: () => {
-    set({ deployState: null });
-  },
+    isOperationActive: (key: string) => {
+      return get().operations[key] ?? false;
+    },
 
-  clearDownloadProgress: (id: string) => {
-    set((state) => {
-      const next = { ...state.downloadProgress };
-      delete next[id];
-      return { downloadProgress: next };
-    });
-  },
-}));
+    startDeploy: (instanceName: string, type: 'start' | 'upgrade' | 'downgrade') => {
+      set({ deployState: { instanceName, deployType: type, progress: null } });
+    },
+
+    setDeployProgress: (progress: DeployProgress | null) => {
+      set((state) => ({
+        deployState: state.deployState ? { ...state.deployState, progress } : null,
+      }));
+    },
+
+    closeDeploy: () => {
+      set({ deployState: null });
+    },
+
+    clearDownloadProgress: (id: string) => {
+      set((state) => {
+        const next = { ...state.downloadProgress };
+        delete next[id];
+        return { downloadProgress: next };
+      });
+    },
+  };
+});
 
 // Event listener management (module-level, outside React)
 let unlistenFns: UnlistenFn[] = [];

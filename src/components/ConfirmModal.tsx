@@ -6,6 +6,7 @@ interface ConfirmModalProps {
   title: string;
   content: React.ReactNode;
   loading?: boolean;
+  lockOnLoading?: boolean;
   danger?: boolean;
   okText?: string;
   onConfirm: () => void;
@@ -17,6 +18,7 @@ export function ConfirmModal({
   title,
   content,
   loading = false,
+  lockOnLoading = false,
   danger = false,
   okText = '确定',
   onConfirm,
@@ -42,43 +44,10 @@ export function ConfirmModal({
       okButtonProps={{ danger, loading }}
       cancelButtonProps={{ disabled: loading }}
       closable={false}
+      maskClosable={lockOnLoading ? !loading : true}
+      keyboard={lockOnLoading ? !loading : true}
     >
       {content}
     </Modal>
-  );
-}
-
-interface ConfirmDeleteModalProps {
-  open: boolean;
-  title: string;
-  itemName: string;
-  loading?: boolean;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-export function ConfirmDeleteModal({
-  open,
-  title,
-  itemName,
-  loading = false,
-  onConfirm,
-  onCancel,
-}: ConfirmDeleteModalProps) {
-  return (
-    <ConfirmModal
-      open={open}
-      title={title}
-      danger
-      loading={loading}
-      okText="确认删除"
-      onConfirm={onConfirm}
-      onCancel={onCancel}
-      content={
-        <p>
-          确定要删除 <strong>{itemName}</strong> 吗？此操作不可恢复。
-        </p>
-      }
-    />
   );
 }

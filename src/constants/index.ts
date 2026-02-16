@@ -21,8 +21,6 @@ export const UPGRADE_STEPS: StepItem[] = [
   { key: 'done', title: '完成' },
 ];
 
-export const DOWNGRADE_STEPS: StepItem[] = UPGRADE_STEPS;
-
 // ========================================
 // Step Index Calculator
 // ========================================

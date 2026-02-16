@@ -1,1 +1,1 @@
-export { getErrorMessage, handleApiError, withErrorHandling } from './error';
+export { getErrorMessage, handleApiError } from './error';

@@ -107,7 +107,9 @@ pub fn run() {
                 loop {
                     match rx.recv().await {
                         Ok(_event) => {
-                            if let Ok(snapshot) = commands::build_app_snapshot(&pm).await {
+                            if let Ok(snapshot) =
+                                commands::build_app_snapshot_with(&pm, load_config).await
+                            {
                                 let _ = app_handle.emit("app-snapshot", &snapshot);
                             }
                         }

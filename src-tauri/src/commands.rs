@@ -50,25 +50,11 @@ fn apply_uv_fallback(config: &mut AppConfig) {
     }
 }
 
-pub async fn build_app_snapshot(process_manager: &ProcessManager) -> Result<AppSnapshot> {
-    let config = load_config()?;
-    let instances = instance::list_instances(process_manager).await?;
-    let backups = backup::list_backups()?;
-    let mut config_for_snapshot = (*config).clone();
-    apply_uv_fallback(&mut config_for_snapshot);
-    sort_installed_versions_semver(&mut config_for_snapshot.installed_versions);
-
-    Ok(AppSnapshot {
-        instances,
-        versions: config_for_snapshot.installed_versions.clone(),
-        backups,
-        components: component::build_components_snapshot(),
-        config: config_for_snapshot,
-    })
-}
-
-pub async fn build_app_snapshot_from_disk(process_manager: &ProcessManager) -> Result<AppSnapshot> {
-    let config = reload_config()?;
+pub(crate) async fn build_app_snapshot_with(
+    process_manager: &ProcessManager,
+    load_config_fn: fn() -> Result<Arc<AppConfig>>,
+) -> Result<AppSnapshot> {
+    let config = load_config_fn()?;
     let instances = instance::list_instances(process_manager).await?;
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
@@ -86,12 +72,12 @@ pub async fn build_app_snapshot_from_disk(process_manager: &ProcessManager) -> R
 
 #[tauri::command]
 pub async fn get_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot(&state.process_manager).await
+    build_app_snapshot_with(&state.process_manager, load_config).await
 }
 
 #[tauri::command]
 pub async fn rebuild_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_from_disk(&state.process_manager).await
+    build_app_snapshot_with(&state.process_manager, reload_config).await
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

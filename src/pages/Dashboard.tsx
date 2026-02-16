@@ -31,6 +31,15 @@ import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 
 const { Title } = Typography;
 
+type InstanceActionOptions<T> = {
+  id: string;
+  action: (id: string) => Promise<T>;
+  successMessage: (result: T) => string;
+  precheck?: (instance: InstanceStatus) => boolean;
+  onSkipped?: () => void;
+  onError?: () => void;
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
@@ -180,6 +189,44 @@ export default function Dashboard() {
     [editingInstance, upgradeInstance, reloadSnapshot]
   );
 
+  const executeInstanceAction = useCallback(
+    async <T,>({
+      id,
+      action,
+      successMessage,
+      precheck,
+      onSkipped,
+      onError,
+    }: InstanceActionOptions<T>) => {
+      const operationKey = OPERATION_KEYS.instance(id);
+      startOperation(operationKey);
+      try {
+        await reloadSnapshot();
+        const { instances: latestInstances } = useAppStore.getState();
+        const latestInstance = latestInstances.find((i) => i.id === id);
+        if (!latestInstance) {
+          message.warning('实例不存在或已被删除');
+          onSkipped?.();
+          return;
+        }
+        if (precheck && !precheck(latestInstance)) {
+          onSkipped?.();
+          return;
+        }
+
+        const result = await action(id);
+        await reloadSnapshot({ throwOnError: true });
+        message.success(successMessage(result));
+      } catch (error) {
+        handleApiError(error);
+        onError?.();
+      } finally {
+        finishOperation(operationKey);
+      }
+    },
+    [startOperation, finishOperation, reloadSnapshot]
+  );
+
   const handleStart = useCallback(
     async (id: string) => {
       const instance = instances.find((i) => i.id === id);
@@ -193,85 +240,46 @@ export default function Dashboard() {
         return;
       }
 
-      const operationKey = OPERATION_KEYS.instance(id);
-
       startDeploy(instance.name, 'start');
 
-      startOperation(operationKey);
-      try {
-        await reloadSnapshot();
-        const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === id);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
-          return;
-        }
-
-        const port = await api.startInstance(id);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(STATUS_MESSAGES.INSTANCE_STARTED(port));
-      } catch (error) {
-        handleApiError(error);
-        closeDeploy();
-      } finally {
-        finishOperation(operationKey);
-      }
+      await executeInstanceAction<number>({
+        id,
+        action: api.startInstance,
+        successMessage: (port) => STATUS_MESSAGES.INSTANCE_STARTED(port),
+        onSkipped: closeDeploy,
+        onError: closeDeploy,
+      });
     },
-    [instances, startDeploy, startOperation, finishOperation, closeDeploy, reloadSnapshot]
+    [instances, startDeploy, closeDeploy, executeInstanceAction]
   );
 
   const handleStop = useCallback(
     async (id: string) => {
-      const operationKey = OPERATION_KEYS.instance(id);
-      startOperation(operationKey);
-      try {
-        await reloadSnapshot();
-        const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === id);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
-          return;
-        }
-        if (latestInstance.state === 'stopped') {
-          message.info('实例已停止');
-          return;
-        }
-
-        await api.stopInstance(id);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(STATUS_MESSAGES.INSTANCE_STOPPED);
-      } catch (error) {
-        handleApiError(error);
-      } finally {
-        finishOperation(operationKey);
-      }
+      await executeInstanceAction<void>({
+        id,
+        action: api.stopInstance,
+        successMessage: () => STATUS_MESSAGES.INSTANCE_STOPPED,
+        precheck: (instance) => {
+          if (instance.state === 'stopped') {
+            message.info('实例已停止');
+            return false;
+          }
+          return true;
+        },
+      });
     },
-    [startOperation, finishOperation, reloadSnapshot]
+    [executeInstanceAction]
   );
 
   const handleRestart = useCallback(
     async (id: string) => {
-      const operationKey = OPERATION_KEYS.instance(id);
-      startOperation(operationKey);
-      try {
-        await reloadSnapshot();
-        const { instances: latestInstances } = useAppStore.getState();
-        const latestInstance = latestInstances.find((i) => i.id === id);
-        if (!latestInstance) {
-          message.warning('实例不存在或已被删除');
-          return;
-        }
-
-        const port = await api.restartInstance(id);
-        await reloadSnapshot({ throwOnError: true });
-        message.success(STATUS_MESSAGES.INSTANCE_RESTARTED(port));
-      } catch (error) {
-        handleApiError(error);
-      } finally {
-        finishOperation(operationKey);
-      }
+      await executeInstanceAction<number>({
+        id,
+        action: api.restartInstance,
+        successMessage: (port) => STATUS_MESSAGES.INSTANCE_RESTARTED(port),
+      });
     },
-    [startOperation, finishOperation, reloadSnapshot]
+    [executeInstanceAction]
   );
 
   const handleDelete = useCallback(async () => {
@@ -562,6 +570,7 @@ export default function Dashboard() {
           </>
         }
         loading={operations[OPERATION_KEYS.deleteInstance]}
+        lockOnLoading
         onConfirm={handleDelete}
         onCancel={() => {
           setDeleteOpen(false);
