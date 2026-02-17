@@ -79,6 +79,7 @@ pub async fn start_instance(
         .instances
         .get(instance_id)
         .ok_or_else(|| AppError::instance_not_found(instance_id))?;
+    let _ = component::requires_python310(&instance_config.version);
     let default_index = component::normalize_default_index(&config.pypi_mirror);
     let port = if instance_config.port > 0 {
         check_port_available(instance_config.port)?;

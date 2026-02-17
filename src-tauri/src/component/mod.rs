@@ -21,7 +21,7 @@ pub use common::normalize_default_index;
 pub use migration::migrate_legacy_python_dirs;
 pub use node_shim::generate_shims;
 pub use nodejs::build_nodejs_env_vars;
-pub use python::{create_venv, pip_install_requirements};
+pub use python::{create_venv, pip_install_requirements, requires_python310};
 pub use types::{ComponentId, ComponentsSnapshot};
 pub use uv::{is_uv_installed, uv_sync};
 

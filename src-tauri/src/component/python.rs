@@ -23,16 +23,22 @@ pub(super) fn is_component_installed() -> bool {
 
 /// Determine whether a given AstrBot version requires Python 3.10.
 /// v4.14.6 and earlier -> 3.10, v4.14.7+ -> 3.12.
-fn requires_python310(version: &str) -> bool {
+pub fn requires_python310(version: &str) -> bool {
     let version = version.strip_prefix('v').unwrap_or(version);
     let parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
 
-    match parts.as_slice() {
+    let requires_python310 = match parts.as_slice() {
         [major, minor, patch, ..] => (*major, *minor, *patch) <= (4, 14, 6),
         [major, minor] => (*major, *minor) <= (4, 14),
         [major] => *major <= 4,
         _ => false,
+    };
+
+    if requires_python310 && cfg!(target_os = "windows") && cfg!(target_arch = "aarch64") {
+        log::warn!("Python 3.10 is unavailable on Windows ARM; using Python 3.11 fallback.");
     }
+
+    requires_python310
 }
 
 /// Get the appropriate Python executable for a given AstrBot version.
@@ -220,13 +226,28 @@ async fn install_python_version(
     target_dir: &std::path::Path,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
+    // workaround for Python 3.10 not being available on Windows ARM (see issue #1)
+    let download_major_version = if major_version == "3.10"
+        && cfg!(target_os = "windows")
+        && cfg!(target_arch = "aarch64")
+    {
+        log::warn!(
+                "Python 3.10 is unavailable on Windows ARM; falling back to Python 3.11 while keeping runtime directory as py310."
+            );
+        "3.11"
+    } else {
+        major_version
+    };
+
     let releases = fetch_python_releases(client).await?;
 
     let mut download_url = None;
     let mut python_version = String::new();
 
     for release in &releases {
-        if let Ok((url, version)) = find_python_asset_for_version(&release.assets, major_version) {
+        if let Ok((url, version)) =
+            find_python_asset_for_version(&release.assets, download_major_version)
+        {
             download_url = Some(url);
             python_version = version;
             break;
