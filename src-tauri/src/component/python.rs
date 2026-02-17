@@ -23,22 +23,16 @@ pub(super) fn is_component_installed() -> bool {
 
 /// Determine whether a given AstrBot version requires Python 3.10.
 /// v4.14.6 and earlier -> 3.10, v4.14.7+ -> 3.12.
-pub fn requires_python310(version: &str) -> bool {
+fn requires_python310(version: &str) -> bool {
     let version = version.strip_prefix('v').unwrap_or(version);
     let parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
 
-    let requires_python310 = match parts.as_slice() {
+    match parts.as_slice() {
         [major, minor, patch, ..] => (*major, *minor, *patch) <= (4, 14, 6),
         [major, minor] => (*major, *minor) <= (4, 14),
         [major] => *major <= 4,
         _ => false,
-    };
-
-    if requires_python310 && cfg!(target_os = "windows") && cfg!(target_arch = "aarch64") {
-        log::warn!("Python 3.10 is unavailable on Windows ARM; using Python 3.11 fallback.");
     }
-
-    requires_python310
 }
 
 /// Get the appropriate Python executable for a given AstrBot version.
@@ -227,12 +221,12 @@ async fn install_python_version(
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
     // workaround for Python 3.10 not being available on Windows ARM (see issue #1)
-    let download_major_version = if major_version == "3.10"
+    let effective_major_version = if major_version == "3.10"
         && cfg!(target_os = "windows")
         && cfg!(target_arch = "aarch64")
     {
         log::warn!(
-                "Python 3.10 is unavailable on Windows ARM; falling back to Python 3.11 while keeping runtime directory as py310."
+                "Windows ARM does not provide Python 3.10 builds; installing Python 3.11 into py310 runtime directory as compatibility fallback."
             );
         "3.11"
     } else {
@@ -246,7 +240,7 @@ async fn install_python_version(
 
     for release in &releases {
         if let Ok((url, version)) =
-            find_python_asset_for_version(&release.assets, download_major_version)
+            find_python_asset_for_version(&release.assets, effective_major_version)
         {
             download_url = Some(url);
             python_version = version;
@@ -254,7 +248,12 @@ async fn install_python_version(
         }
     }
 
-    let mut url = download_url.ok_or_else(|| AppError::python(major_version.to_string()))?;
+    let mut url = download_url.ok_or_else(|| {
+        AppError::python(format!(
+            "No Python {} build found for current platform (requested {}, effective {})",
+            effective_major_version, major_version, effective_major_version
+        ))
+    })?;
     if let Ok(config) = load_config() {
         url = wrap_with_proxy(&config.github_proxy, &url);
     }
@@ -274,8 +273,8 @@ async fn install_python_version(
     let python_exe = get_python_exe_path(target_dir);
     if !python_exe.exists() {
         return Err(AppError::python(format!(
-            "Python {} extracted but executable not found: {:?}",
-            major_version, python_exe
+            "Python runtime extracted but executable not found: {:?} (requested {}, effective {})",
+            python_exe, major_version, effective_major_version
         )));
     }
 
