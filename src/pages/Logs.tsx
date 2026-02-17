@@ -34,7 +34,7 @@ export default function Logs() {
   const effectiveSource = sourceOptions.some((o) => o.value === source) ? source : 'system';
   const logs = useMemo(
     () => getFilteredLogs(effectiveSource, level),
-    [effectiveSource, level, getFilteredLogs],
+    [effectiveSource, level, getFilteredLogs]
   );
 
   const handleScroll = () => {

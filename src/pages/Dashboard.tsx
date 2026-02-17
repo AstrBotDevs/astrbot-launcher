@@ -1,27 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Button,
-  Table,
-  Modal,
-  Form,
-  Input,
-  InputNumber,
-  Select,
-  Alert,
-} from 'antd';
+import { Button, Table, Modal, Form, Input, InputNumber, Select, Alert } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
 import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import { useAppStore } from '../stores';
-import {
-  DeployProgressModal,
-  ConfirmModal,
-  EditInstanceModal,
-  PageHeader,
-} from '../components';
+import { DeployProgressModal, ConfirmModal, EditInstanceModal, PageHeader } from '../components';
 import { handleApiError } from '../utils';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 import { buildDashboardColumns } from './dashboardColumns';
@@ -178,7 +164,12 @@ export default function Dashboard() {
 
           setEditOpen(false);
           setEditingInstance(null);
-          await api.updateInstance(latestInstance.id, values.name, values.version, values.port ?? 0);
+          await api.updateInstance(
+            latestInstance.id,
+            values.name,
+            values.version,
+            values.port ?? 0
+          );
         },
         onSuccess: () => {
           message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
@@ -332,13 +323,10 @@ export default function Dashboard() {
     [navigate]
   );
 
-  const openEditModal = useCallback(
-    (instance: InstanceStatus) => {
-      setEditingInstance(instance);
-      setEditOpen(true);
-    },
-    []
-  );
+  const openEditModal = useCallback((instance: InstanceStatus) => {
+    setEditingInstance(instance);
+    setEditOpen(true);
+  }, []);
 
   const openDeleteModal = useCallback((instance: InstanceStatus) => {
     setInstanceToDelete(instance);

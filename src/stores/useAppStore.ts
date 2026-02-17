@@ -49,24 +49,25 @@ interface AppState {
   clearDownloadProgress: (id: string) => void;
 }
 
-const KNOWN_COMPONENTS: ReadonlyArray<Pick<ComponentStatus, 'id' | 'display_name' | 'description'>> =
-  [
-    {
-      id: 'python',
-      display_name: 'Python',
-      description: 'Python 3.10 / 3.12 运行时',
-    },
-    {
-      id: 'nodejs',
-      display_name: 'Node.js (LTS)',
-      description: 'Node.js 运行时',
-    },
-    {
-      id: 'uv',
-      display_name: 'uv',
-      description: 'uv / uvx 包管理工具',
-    },
-  ];
+const KNOWN_COMPONENTS: ReadonlyArray<
+  Pick<ComponentStatus, 'id' | 'display_name' | 'description'>
+> = [
+  {
+    id: 'python',
+    display_name: 'Python',
+    description: 'Python 3.10 / 3.12 运行时',
+  },
+  {
+    id: 'nodejs',
+    display_name: 'Node.js (LTS)',
+    description: 'Node.js 运行时',
+  },
+  {
+    id: 'uv',
+    display_name: 'uv',
+    description: 'uv / uvx 包管理工具',
+  },
+];
 
 function isComponentStatus(value: unknown): value is ComponentStatus {
   if (!value || typeof value !== 'object') {

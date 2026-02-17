@@ -38,17 +38,21 @@ export function InstanceActions({
 }: InstanceActionsProps) {
   const isActive = instance.state !== 'stopped';
   const canOpenWebUI =
-    snapshotReady && instance.state === 'running' && instance.dashboard_enabled && !loading && !isDeploying;
+    snapshotReady &&
+    instance.state === 'running' &&
+    instance.dashboard_enabled &&
+    !loading &&
+    !isDeploying;
 
   const openWebUITitle = !snapshotReady
     ? '数据加载中'
     : !instance.dashboard_enabled
-    ? 'Dashboard 已禁用'
-    : instance.state !== 'running'
-      ? '实例未启动完成'
-      : loading || isDeploying
-        ? '操作进行中，请稍后'
-      : '打开 WebUI';
+      ? 'Dashboard 已禁用'
+      : instance.state !== 'running'
+        ? '实例未启动完成'
+        : loading || isDeploying
+          ? '操作进行中，请稍后'
+          : '打开 WebUI';
 
   return (
     <Space size="small">
@@ -97,7 +101,7 @@ export function InstanceActions({
           onClick={() => onEdit(instance)}
         />
       </Tooltip>
-      <Tooltip title='删除'>
+      <Tooltip title="删除">
         <Button
           type="text"
           danger

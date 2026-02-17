@@ -25,7 +25,7 @@ export function useOperationRunner() {
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
 
   const runOperation = useCallback(
-    async <T,>({
+    async <T>({
       key,
       task,
       reloadBefore = false,

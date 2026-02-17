@@ -85,11 +85,7 @@ export function EditInstanceModal({
       okText={okText}
       destroyOnHidden
     >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={(values) => void onSubmit(values)}
-      >
+      <Form form={form} layout="vertical" onFinish={(values) => void onSubmit(values)}>
         <Form.Item name="name" label="名称" rules={[{ required: true }]}>
           <Input />
         </Form.Item>

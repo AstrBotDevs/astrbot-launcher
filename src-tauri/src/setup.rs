@@ -49,8 +49,7 @@ fn spawn_event_forwarder(app: &mut tauri::App) {
         loop {
             match rx.recv().await {
                 Ok(_event) => {
-                    if let Ok(snapshot) =
-                        commands::build_app_snapshot_with(&pm, load_config).await
+                    if let Ok(snapshot) = commands::build_app_snapshot_with(&pm, load_config).await
                     {
                         let _ = app_handle.emit("app-snapshot", &snapshot);
                     }
@@ -91,12 +90,8 @@ fn restore_instances(app: &mut tauri::App) {
             tauri::async_runtime::spawn(async move {
                 for id in &ids {
                     log::info!("Restoring instance: {}", id);
-                    if let Err(e) = instance::start_instance(
-                        id,
-                        &restore_handle,
-                        Arc::clone(&restore_pm),
-                    )
-                    .await
+                    if let Err(e) =
+                        instance::start_instance(id, &restore_handle, Arc::clone(&restore_pm)).await
                     {
                         log::error!("Failed to restore instance {}: {:?}", id, e);
                     }
