@@ -250,8 +250,8 @@ async fn install_python_version(
 
     let mut url = download_url.ok_or_else(|| {
         AppError::python(format!(
-            "No Python {} build found for current platform (requested {}, effective {})",
-            effective_major_version, major_version, effective_major_version
+            "No Python {} build found for current platform (requested {})",
+            effective_major_version, major_version
         ))
     })?;
     if let Ok(config) = load_config() {
