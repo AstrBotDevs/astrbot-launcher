@@ -41,7 +41,9 @@ pub fn run() {
     }
 
     paths::ensure_data_dirs().expect("Failed to create data directories");
-    component::migrate_legacy_python_dirs();
+    component::migration::migrate_legacy_python_dirs();
+    #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+    component::migration::migrate_windows_arm_python_component_if_needed();
     github::init_releases_cache();
 
     let process_manager = Arc::new(ProcessManager::new());

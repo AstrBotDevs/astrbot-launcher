@@ -30,6 +30,164 @@ pub fn migrate_legacy_python_dirs() {
     }
 }
 
+/// On Windows ARM, remove legacy ARM64 Python runtimes so the launcher can
+/// reinstall x86_64 runtimes on demand.
+///
+/// Migration errors are logged but never crash the app.
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+pub fn migrate_windows_arm_python_component_if_needed() {
+    let python_component_dir = get_component_dir("python");
+    if !python_component_dir.exists() {
+        return;
+    }
+
+    let py310_dir = python_component_dir.join("py310");
+    let py312_dir = python_component_dir.join("py312");
+
+    let need_py310 = runtime_needs_migration(&py310_dir);
+    let need_py312 = runtime_needs_migration(&py312_dir);
+    if !need_py310 && !need_py312 {
+        return;
+    }
+
+    log::info!(
+        "Migration: detected incompatible Python runtime on Windows ARM (py310: {}, py312: {}), removing python component for x86_64 reinstall",
+        need_py310,
+        need_py312
+    );
+
+    if let Err(e) = clear_instance_venvs_for_python_migration(&get_data_dir()) {
+        log::warn!(
+            "Migration: failed to clean instance venvs before python component migration: {}",
+            e
+        );
+    }
+
+    if let Err(e) = fs::remove_dir_all(&python_component_dir) {
+        log::warn!(
+            "Migration: failed to remove python component at {:?}: {}",
+            python_component_dir,
+            e
+        );
+        return;
+    }
+
+    log::info!(
+        "Migration: removed python component at {:?}",
+        python_component_dir
+    );
+}
+
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+fn runtime_needs_migration(runtime_dir: &Path) -> bool {
+    const IMAGE_FILE_MACHINE_AMD64: u16 = 0x8664;
+    const IMAGE_FILE_MACHINE_ARM64: u16 = 0xAA64;
+
+    if !runtime_dir.exists() {
+        return false;
+    }
+
+    let python_exe = crate::paths::get_python_exe_path(runtime_dir);
+    if !python_exe.exists() {
+        log::warn!(
+            "Migration: python executable missing in runtime {:?}, migration required",
+            runtime_dir
+        );
+        return true;
+    }
+
+    match read_pe_machine(&python_exe) {
+        Ok(IMAGE_FILE_MACHINE_AMD64) => false,
+        Ok(IMAGE_FILE_MACHINE_ARM64) => true,
+        Ok(other) => {
+            log::warn!(
+                "Migration: unexpected PE machine type 0x{:04X} for {:?}, migration required",
+                other,
+                python_exe
+            );
+            true
+        }
+        Err(e) => {
+            log::warn!(
+                "Migration: failed to read PE machine for {:?}: {}, migration required",
+                python_exe,
+                e
+            );
+            true
+        }
+    }
+}
+
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+fn read_pe_machine(exe_path: &Path) -> Result<u16, String> {
+    let bytes = fs::read(exe_path)
+        .map_err(|e| format!("Failed to read executable {:?}: {}", exe_path, e))?;
+
+    if bytes.len() < 0x40 {
+        return Err("File too small for DOS header".to_string());
+    }
+
+    if &bytes[0..2] != b"MZ" {
+        return Err("Invalid DOS signature".to_string());
+    }
+
+    let e_lfanew = u32::from_le_bytes([bytes[0x3C], bytes[0x3D], bytes[0x3E], bytes[0x3F]]);
+    let nt_offset =
+        usize::try_from(e_lfanew).map_err(|_| "NT header offset overflow".to_string())?;
+
+    let pe_sig_end = nt_offset
+        .checked_add(4)
+        .ok_or_else(|| "NT header offset overflow".to_string())?;
+    let machine_end = nt_offset
+        .checked_add(6)
+        .ok_or_else(|| "COFF header offset overflow".to_string())?;
+
+    if machine_end > bytes.len() {
+        return Err("NT/COFF header out of bounds".to_string());
+    }
+
+    if &bytes[nt_offset..pe_sig_end] != b"PE\0\0" {
+        return Err("Invalid NT signature".to_string());
+    }
+
+    Ok(u16::from_le_bytes([
+        bytes[nt_offset + 4],
+        bytes[nt_offset + 5],
+    ]))
+}
+
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+fn clear_instance_venvs_for_python_migration(data_dir: &Path) -> Result<(), String> {
+    let instances_dir = data_dir.join("instances");
+    if !instances_dir.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(&instances_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let entry_path = entry.path();
+        if !entry_path.is_dir() {
+            continue;
+        }
+
+        let venv_dir = entry_path.join("venv");
+        if !venv_dir.exists() {
+            continue;
+        }
+
+        match fs::remove_dir_all(&venv_dir) {
+            Ok(_) => log::info!("Migration: removed instance venv {:?}", venv_dir),
+            Err(e) => log::warn!(
+                "Migration: failed to remove instance venv {:?}: {}",
+                venv_dir,
+                e
+            ),
+        }
+    }
+
+    Ok(())
+}
+
 fn migrate_dir(src: &Path, dst: &Path, label: &str) {
     if !src.exists() {
         return;
