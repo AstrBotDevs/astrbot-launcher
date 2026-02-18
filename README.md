@@ -30,3 +30,7 @@ AstrBot Launcher是一款用于图形化管理AstrBot的桌面应用程序，提
 ## 安全性说明
 
 本项目所有源代码公开，内嵌二进制文件ctrlc_sender.exe源码托管于<https://codeberg.org/Raven95676/ctrlc_sender>
+
+## 附注
+
+如果本项目对您的生活/工作产生帮助，请给项目一个 Star ❤️
