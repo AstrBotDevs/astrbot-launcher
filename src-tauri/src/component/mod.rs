@@ -1,5 +1,5 @@
 mod common;
-mod migration;
+pub(crate) mod migration;
 mod node_shim;
 mod nodejs;
 mod python;
@@ -18,7 +18,6 @@ use crate::error::{AppError, Result};
 use crate::paths::{get_component_dir, get_node_exe_path, get_nodejs_shim_dir};
 
 pub use common::normalize_default_index;
-pub use migration::migrate_legacy_python_dirs;
 pub use node_shim::generate_shims;
 pub use nodejs::build_nodejs_env_vars;
 pub use python::{create_venv, pip_install_requirements};

@@ -232,28 +232,13 @@ async fn install_python_version(
     target_dir: &std::path::Path,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
-    // workaround for Python 3.10 not being available on Windows ARM (see issue #1)
-    let effective_major_version = if major_version == "3.10"
-        && cfg!(target_os = "windows")
-        && cfg!(target_arch = "aarch64")
-    {
-        log::warn!(
-                "Windows ARM does not provide Python 3.10 builds; installing Python 3.11 into py310 runtime directory as compatibility fallback."
-            );
-        "3.11"
-    } else {
-        major_version
-    };
-
     let releases = fetch_python_releases(client).await?;
 
     let mut download_url = None;
     let mut python_version = String::new();
 
     for release in &releases {
-        if let Ok((url, version)) =
-            find_python_asset_for_version(&release.assets, effective_major_version)
-        {
+        if let Ok((url, version)) = find_python_asset_for_version(&release.assets, major_version) {
             download_url = Some(url);
             python_version = version;
             break;
@@ -262,8 +247,8 @@ async fn install_python_version(
 
     let mut url = download_url.ok_or_else(|| {
         AppError::python(format!(
-            "No Python {} build found for current platform (requested {})",
-            effective_major_version, major_version
+            "No Python {} build found for current platform",
+            major_version
         ))
     })?;
     if let Ok(config) = load_config() {
@@ -285,8 +270,8 @@ async fn install_python_version(
     let python_exe = get_python_exe_path(target_dir);
     if !python_exe.exists() {
         return Err(AppError::python(format!(
-            "Python runtime extracted but executable not found: {:?} (requested {}, effective {})",
-            python_exe, major_version, effective_major_version
+            "Python runtime extracted but executable not found: {:?}",
+            python_exe
         )));
     }
 
