@@ -5,7 +5,7 @@ use crate::github::GitHubAsset;
 pub fn get_python_arch_target() -> Result<&'static str, String> {
     match (OS, ARCH) {
         ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
-        ("windows", "aarch64") => Ok("aarch64-pc-windows-msvc"),
+        ("windows", "aarch64") => Ok("x86_64-pc-windows-msvc"),
         ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
         ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
         ("linux", "arm") => Ok("armv7-unknown-linux-gnueabihf"),
