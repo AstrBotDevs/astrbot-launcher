@@ -56,6 +56,13 @@ pub fn migrate_windows_arm_python_component_if_needed() {
         need_py312
     );
 
+    if let Err(e) = clear_tracked_instances_snapshot_for_python_migration() {
+        log::warn!(
+            "Migration: failed to clear tracked instance snapshot before python component migration: {}",
+            e
+        );
+    }
+
     if let Err(e) = clear_instance_venvs_for_python_migration(&get_data_dir()) {
         log::warn!(
             "Migration: failed to clean instance venvs before python component migration: {}",
@@ -169,6 +176,20 @@ fn read_pe_machine(exe_path: &Path) -> Result<u16, String> {
         nt_and_coff_prefix[4],
         nt_and_coff_prefix[5],
     ]))
+}
+
+#[cfg(all(target_os = "windows", target_arch = "aarch64"))]
+fn clear_tracked_instances_snapshot_for_python_migration() -> Result<(), String> {
+    crate::config::with_config_mut(|config| {
+        if !config.tracked_instances_snapshot.is_empty() {
+            config.tracked_instances_snapshot.clear();
+            log::info!(
+                "Migration: cleared tracked_instances_snapshot due to Windows ARM Python migration"
+            );
+        }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(all(target_os = "windows", target_arch = "aarch64"))]
