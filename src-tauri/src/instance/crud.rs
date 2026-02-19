@@ -257,8 +257,10 @@ pub async fn update_instance(
 }
 
 /// List all instances with their running status.
-pub async fn list_instances(process_manager: &ProcessManager) -> Result<Vec<InstanceStatus>> {
-    let manifest = load_manifest()?;
+pub async fn list_instances(
+    process_manager: &ProcessManager,
+    manifest: &AppManifest,
+) -> Result<Vec<InstanceStatus>> {
     let runtime_snapshot = process_manager.get_runtime_snapshot().await;
 
     Ok(manifest

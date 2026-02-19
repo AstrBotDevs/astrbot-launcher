@@ -140,7 +140,7 @@ pub(crate) async fn build_app_snapshot_with(
 ) -> Result<AppSnapshot> {
     let config = load_config_fn()?;
     let manifest = load_manifest_fn()?;
-    let instances = instance::list_instances(process_manager).await?;
+    let instances = instance::list_instances(process_manager, manifest.as_ref()).await?;
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
     apply_uv_fallback(&mut config_for_snapshot);
