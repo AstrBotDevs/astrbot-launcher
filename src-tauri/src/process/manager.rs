@@ -47,6 +47,7 @@ impl ProcessManager {
     pub fn new() -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(3))
+            .no_proxy()
             .build()
             .expect("Failed to create HTTP client");
 
