@@ -21,6 +21,7 @@ export const OPERATION_KEYS = {
   advancedSaveCloseToTray: 'adv:save-close-to-tray',
   advancedSaveCheckInstanceUpdate: 'adv:save-check-instance-update',
   advancedSavePersistInstanceState: 'adv:save-persist-instance-state',
+  advancedSaveIgnoreExternalPath: 'adv:save-ignore-external-path',
   advancedSaveAutostart: 'adv:save-autostart',
   advancedSaveUseUvForDeps: 'adv:save-use-uv-for-deps',
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,

@@ -113,7 +113,7 @@ pub async fn start_instance(
         component::generate_shims(&nodejs_env_vars)?;
     }
 
-    let new_path = component::build_instance_path(&venv_python)?;
+    let new_path = component::build_instance_path(&venv_python, config.ignore_external_path)?;
     let uv_cache_dir = get_uv_cache_dir();
     std::fs::create_dir_all(&uv_cache_dir)
         .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;

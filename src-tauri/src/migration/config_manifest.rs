@@ -48,6 +48,8 @@ struct LegacyAppConfig {
     #[serde(default)]
     persist_instance_state: bool,
     #[serde(default)]
+    ignore_external_path: bool,
+    #[serde(default)]
     tracked_instances_snapshot: Vec<String>,
 }
 
@@ -66,6 +68,7 @@ impl LegacyAppConfig {
             close_to_tray: self.close_to_tray,
             check_instance_update: self.check_instance_update,
             persist_instance_state: self.persist_instance_state,
+            ignore_external_path: self.ignore_external_path,
         }
     }
 

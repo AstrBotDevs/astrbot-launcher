@@ -45,9 +45,23 @@ pub async fn uv_sync(
         .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;
 
     let default_index = normalize_default_index(pypi_mirror);
-    let new_path = crate::component::build_instance_path(venv_python)?;
-    let proxy_env_vars = match load_config().and_then(|cfg| proxy::build_proxy_env_vars(&cfg)) {
-        Ok(vars) => vars,
+    let loaded_config = load_config();
+    let ignore_external_path = loaded_config
+        .as_ref()
+        .map(|cfg| cfg.ignore_external_path)
+        .unwrap_or(false);
+    let new_path = crate::component::build_instance_path(venv_python, ignore_external_path)?;
+    let proxy_env_vars = match loaded_config {
+        Ok(cfg) => match proxy::build_proxy_env_vars(&cfg) {
+            Ok(vars) => vars,
+            Err(e) => {
+                log::warn!(
+                    "Failed to prepare proxy env for uv sync, fallback to no proxy: {}",
+                    e
+                );
+                Vec::new()
+            }
+        },
         Err(e) => {
             log::warn!(
                 "Failed to prepare proxy env for uv sync, fallback to no proxy: {}",

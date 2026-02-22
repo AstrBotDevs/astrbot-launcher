@@ -43,6 +43,8 @@ pub struct AppConfig {
     pub check_instance_update: bool,
     #[serde(default)]
     pub persist_instance_state: bool,
+    #[serde(default)]
+    pub ignore_external_path: bool,
 }
 
 impl Default for AppConfig {
@@ -60,6 +62,7 @@ impl Default for AppConfig {
             close_to_tray: true,
             check_instance_update: true,
             persist_instance_state: false,
+            ignore_external_path: false,
         }
     }
 }
