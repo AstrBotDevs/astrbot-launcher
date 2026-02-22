@@ -50,19 +50,9 @@ pub enum InstanceState {
 }
 
 #[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum RuntimeEventReason {
-    ProcessTracked,
-    ProcessRemoved,
-    StateChanged,
-    HealthUnhealthy,
-    HealthRestored,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct RuntimeEvent {
     pub instance_id: String,
-    pub reason: RuntimeEventReason,
+    pub state: InstanceState,
 }
 
 /// Information about a running instance.

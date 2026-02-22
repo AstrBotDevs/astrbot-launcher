@@ -17,8 +17,8 @@ use super::win_api::get_pid_on_port;
 #[cfg(target_os = "windows")]
 use super::PROCESS_EXIT_THRESHOLD;
 use super::{
-    InstanceProcess, InstanceRuntimeSnapshot, InstanceState, RuntimeEvent, RuntimeEventReason,
-    MONITOR_INTERVAL, UNHEALTHY_THRESHOLD,
+    InstanceProcess, InstanceRuntimeSnapshot, InstanceState, RuntimeEvent, MONITOR_INTERVAL,
+    UNHEALTHY_THRESHOLD,
 };
 
 /// Snapshot of an instance's state for the status check loop.
@@ -63,10 +63,10 @@ impl ProcessManager {
         self.runtime_events.subscribe()
     }
 
-    fn emit_runtime_event(&self, instance_id: &str, reason: RuntimeEventReason) {
+    fn emit_runtime_event(&self, instance_id: &str, state: InstanceState) {
         let _ = self.runtime_events.send(RuntimeEvent {
             instance_id: instance_id.to_string(),
-            reason,
+            state,
         });
     }
 
@@ -101,7 +101,7 @@ impl ProcessManager {
             InstanceProcess::new(pid, executable_path, port, dashboard_enabled),
         );
         drop(procs);
-        self.emit_runtime_event(instance_id, RuntimeEventReason::ProcessTracked);
+        self.emit_runtime_event(instance_id, InstanceState::Starting);
     }
 
     /// Get the port for an instance.
@@ -116,7 +116,7 @@ impl ProcessManager {
         let removed = procs.remove(instance_id);
         drop(procs);
         if removed.is_some() {
-            self.emit_runtime_event(instance_id, RuntimeEventReason::ProcessRemoved);
+            self.emit_runtime_event(instance_id, InstanceState::Stopped);
         }
         removed
     }
@@ -129,7 +129,7 @@ impl ProcessManager {
             info.state = InstanceState::Stopping;
             let result = (info.pid, info.executable_path.clone());
             drop(procs);
-            self.emit_runtime_event(instance_id, RuntimeEventReason::StateChanged);
+            self.emit_runtime_event(instance_id, InstanceState::Stopping);
             Some(result)
         } else {
             None
@@ -229,7 +229,7 @@ impl ProcessManager {
 
             if was_unhealthy {
                 drop(procs);
-                self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthRestored);
+                self.emit_runtime_event(&entry.id, InstanceState::Running);
             }
         }
     }
@@ -263,7 +263,7 @@ impl ProcessManager {
         drop(procs);
 
         if emit_unhealthy_event {
-            self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthUnhealthy);
+            self.emit_runtime_event(&entry.id, InstanceState::Unhealthy);
         }
 
         state
@@ -362,7 +362,7 @@ impl ProcessManager {
             drop(procs);
 
             for id in removed_instances {
-                self.emit_runtime_event(&id, RuntimeEventReason::ProcessRemoved);
+                self.emit_runtime_event(&id, InstanceState::Stopped);
             }
         }
 
