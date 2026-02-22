@@ -80,22 +80,10 @@ impl ProcessManager {
         });
     }
 
-    /// Check if an instance is running (simple check for specific instance).
-    pub async fn is_running(&self, instance_id: &str) -> bool {
-        let info = {
-            let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
-            procs.get(instance_id).cloned()
-        };
-
-        if let Some(info) = info {
-            if info.dashboard_enabled && check_health(&self.http_client, info.port).await {
-                return true;
-            }
-
-            is_expected_process_alive(info.pid, &info.executable_path)
-        } else {
-            false
-        }
+    /// Check if an instance is tracked (i.e. not stopped).
+    pub fn is_tracked(&self, instance_id: &str) -> bool {
+        let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
+        procs.contains_key(instance_id)
     }
 
     /// Set the process info for an instance.
@@ -133,6 +121,21 @@ impl ProcessManager {
         removed
     }
 
+    /// Transition an instance to Stopping state, returning process info for shutdown.
+    /// Returns None if the instance is not tracked.
+    pub fn begin_stop(&self, instance_id: &str) -> Option<(u32, PathBuf)> {
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
+        if let Some(info) = procs.get_mut(instance_id) {
+            info.state = InstanceState::Stopping;
+            let result = (info.pid, info.executable_path.clone());
+            drop(procs);
+            self.emit_runtime_event(instance_id, RuntimeEventReason::StateChanged);
+            Some(result)
+        } else {
+            None
+        }
+    }
+
     /// Mark that the child PID has exited, without removing the tracking entry.
     /// The runtime monitor will handle cleanup via health checks / `is_process_alive`.
     pub fn mark_pid_exited(&self, instance_id: &str, expected_pid: u32) {
@@ -155,6 +158,115 @@ impl ProcessManager {
         if let Some(info) = procs.get_mut(instance_id) {
             info.state = state;
         }
+    }
+
+    /// Evaluate the health of a single dashboard-enabled instance.
+    ///
+    /// Returns the computed `InstanceState` after performing (or skipping) a
+    /// health check with exponential backoff.
+    async fn evaluate_health(&self, entry: &InstanceCheckEntry, now: Instant) -> InstanceState {
+        // Backoff: not yet time to check — use previous state
+        if let Some(next_at) = entry.next_check_at {
+            if now < next_at {
+                let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
+                return if procs
+                    .get(&entry.id)
+                    .is_some_and(|info| info.failure_count >= UNHEALTHY_THRESHOLD)
+                {
+                    InstanceState::Unhealthy
+                } else {
+                    InstanceState::Running
+                };
+            }
+        }
+
+        let is_healthy = check_health(&self.http_client, entry.port).await;
+
+        if is_healthy {
+            self.handle_healthy_check(entry);
+            InstanceState::Running
+        } else {
+            self.handle_failed_check(entry, now)
+        }
+    }
+
+    /// Update tracking state after a successful health check.
+    fn handle_healthy_check(&self, entry: &InstanceCheckEntry) {
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
+        if let Some(info) = procs.get_mut(&entry.id) {
+            #[cfg(target_os = "windows")]
+            if let Some(new_pid) = get_pid_on_port(entry.port) {
+                if new_pid != info.pid {
+                    if is_expected_process_alive(new_pid, &info.executable_path) {
+                        log::info!(
+                            "Instance {} PID updated: {} -> {} (port {})",
+                            entry.id,
+                            info.pid,
+                            new_pid,
+                            entry.port
+                        );
+                        info.pid = new_pid;
+                    } else {
+                        log::warn!(
+                            "Instance {} rejected PID update {} -> {}: executable path mismatch",
+                            entry.id,
+                            info.pid,
+                            new_pid
+                        );
+                    }
+                }
+            }
+            let was_unhealthy = info.failure_count >= UNHEALTHY_THRESHOLD;
+            if was_unhealthy {
+                log::info!(
+                    "Instance {} health restored after {} failures",
+                    entry.id,
+                    info.failure_count
+                );
+            }
+            info.pid_exited = false;
+            info.clear_health_failure_state();
+
+            if was_unhealthy {
+                drop(procs);
+                self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthRestored);
+            }
+        }
+    }
+
+    /// Update tracking state after a failed health check.
+    fn handle_failed_check(&self, entry: &InstanceCheckEntry, now: Instant) -> InstanceState {
+        let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
+        let mut emit_unhealthy_event = false;
+        let state = if let Some(info) = procs.get_mut(&entry.id) {
+            let was_below_threshold = info.failure_count < UNHEALTHY_THRESHOLD;
+            info.failure_count += 1;
+            let backoff = info.calculate_backoff();
+            info.next_check_at = Some(now + backoff);
+
+            if info.failure_count >= UNHEALTHY_THRESHOLD {
+                if was_below_threshold {
+                    log::warn!(
+                        "Instance {} marked unhealthy after {} consecutive health check failures",
+                        entry.id,
+                        info.failure_count
+                    );
+                    emit_unhealthy_event = true;
+                }
+                InstanceState::Unhealthy
+            } else {
+                InstanceState::Running
+            }
+        } else {
+            InstanceState::Stopped
+        };
+        drop(procs);
+
+        if emit_unhealthy_event {
+            self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthUnhealthy);
+        }
+
+        state
     }
 
     /// Get state for all tracked instances.
@@ -183,7 +295,7 @@ impl ProcessManager {
                     dashboard_enabled: info.dashboard_enabled,
                     next_check_at: info.next_check_at,
                     pid_exited: info.pid_exited,
-                    instance_state: info.state.clone(),
+                    instance_state: info.state,
                     #[cfg(target_os = "windows")]
                     failure_count: info.failure_count,
                 })
@@ -194,9 +306,12 @@ impl ProcessManager {
         let mut dead_instances = Vec::new();
 
         for entry in instances {
-            // Skip health check for instances that are still starting up
-            if entry.instance_state == InstanceState::Starting {
-                results.insert(entry.id, InstanceState::Starting);
+            // Skip health check for instances in transitional states
+            if matches!(
+                entry.instance_state,
+                InstanceState::Starting | InstanceState::Stopping
+            ) {
+                results.insert(entry.id, entry.instance_state);
                 continue;
             }
 
@@ -230,102 +345,8 @@ impl ProcessManager {
             }
 
             // Dashboard enabled: perform health check with backoff
-            if let Some(next_at) = entry.next_check_at {
-                if now < next_at {
-                    // Not yet time to check — use previous state
-                    let procs = read_lock_recover(&self.processes, "ProcessManager.processes");
-                    let state = if procs
-                        .get(&entry.id)
-                        .is_some_and(|info| info.failure_count >= UNHEALTHY_THRESHOLD)
-                    {
-                        InstanceState::Unhealthy
-                    } else {
-                        InstanceState::Running
-                    };
-                    drop(procs);
-                    results.insert(entry.id, state);
-                    continue;
-                }
-            }
-
-            let is_healthy = check_health(&self.http_client, entry.port).await;
-
-            if is_healthy {
-                let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
-                if let Some(info) = procs.get_mut(&entry.id) {
-                    #[cfg(target_os = "windows")]
-                    if let Some(new_pid) = get_pid_on_port(entry.port) {
-                        if new_pid != info.pid {
-                            if is_expected_process_alive(new_pid, &info.executable_path) {
-                                log::info!(
-                                    "Instance {} PID updated: {} -> {} (port {})",
-                                    entry.id,
-                                    info.pid,
-                                    new_pid,
-                                    entry.port
-                                );
-                                info.pid = new_pid;
-                            } else {
-                                log::warn!(
-                                    "Instance {} rejected PID update {} -> {}: executable path mismatch",
-                                    entry.id,
-                                    info.pid,
-                                    new_pid
-                                );
-                            }
-                        }
-                    }
-                    let was_unhealthy = info.failure_count >= UNHEALTHY_THRESHOLD;
-                    if was_unhealthy {
-                        log::info!(
-                            "Instance {} health restored after {} failures",
-                            entry.id,
-                            info.failure_count
-                        );
-                    }
-                    info.pid_exited = false;
-                    info.clear_health_failure_state();
-
-                    if was_unhealthy {
-                        drop(procs);
-                        self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthRestored);
-                    }
-                }
-                results.insert(entry.id, InstanceState::Running);
-            } else {
-                // Health check failed
-                let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
-                let mut emit_unhealthy_event = false;
-                let state = if let Some(info) = procs.get_mut(&entry.id) {
-                    let was_below_threshold = info.failure_count < UNHEALTHY_THRESHOLD;
-                    info.failure_count += 1;
-                    let backoff = info.calculate_backoff();
-                    info.next_check_at = Some(now + backoff);
-
-                    if info.failure_count >= UNHEALTHY_THRESHOLD {
-                        if was_below_threshold {
-                            log::warn!(
-                                "Instance {} marked unhealthy after {} consecutive health check failures",
-                                entry.id,
-                                info.failure_count
-                            );
-                            emit_unhealthy_event = true;
-                        }
-                        InstanceState::Unhealthy
-                    } else {
-                        InstanceState::Running
-                    }
-                } else {
-                    InstanceState::Stopped
-                };
-                drop(procs);
-
-                if emit_unhealthy_event {
-                    self.emit_runtime_event(&entry.id, RuntimeEventReason::HealthUnhealthy);
-                }
-
-                results.insert(entry.id, state);
-            }
+            let state = self.evaluate_health(&entry, now).await;
+            results.insert(entry.id, state);
         }
 
         // Remove dead instances
@@ -345,6 +366,17 @@ impl ProcessManager {
             }
         }
 
+        // Sync computed states back to the tracked entries so that
+        // `info.state` always reflects the latest runtime state.
+        {
+            let mut procs = write_lock_recover(&self.processes, "ProcessManager.processes");
+            for (id, state) in &results {
+                if let Some(info) = procs.get_mut(id) {
+                    info.state = *state;
+                }
+            }
+        }
+
         results
     }
 
@@ -359,7 +391,7 @@ impl ProcessManager {
                 (
                     id.clone(),
                     InstanceRuntimeSnapshot {
-                        state: statuses.get(id).cloned().unwrap_or(InstanceState::Stopped),
+                        state: statuses.get(id).copied().unwrap_or(InstanceState::Stopped),
                         port: info.port,
                         dashboard_enabled: info.dashboard_enabled,
                     },

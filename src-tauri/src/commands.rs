@@ -112,13 +112,6 @@ macro_rules! define_save_config_command {
     };
 }
 
-async fn ensure_instance_stopped(state: &State<'_, AppState>, instance_id: &str) -> Result<()> {
-    if state.process_manager.is_running(instance_id).await {
-        return Err(AppError::instance_running());
-    }
-    Ok(())
-}
-
 fn apply_uv_fallback(config: &mut AppConfig) {
     if config.use_uv_for_deps && !component::is_uv_installed() {
         config.use_uv_for_deps = false;
@@ -387,19 +380,25 @@ pub async fn uninstall_version(version: String) -> Result<()> {
 
 #[tauri::command]
 pub async fn clear_instance_data(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    ensure_instance_stopped(&state, &instance_id).await?;
+    if state.process_manager.is_tracked(&instance_id) {
+        return Err(AppError::instance_running());
+    }
     instance::clear_instance_data(&instance_id)
 }
 
 #[tauri::command]
 pub async fn clear_instance_venv(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    ensure_instance_stopped(&state, &instance_id).await?;
+    if state.process_manager.is_tracked(&instance_id) {
+        return Err(AppError::instance_running());
+    }
     instance::clear_instance_venv(&instance_id)
 }
 
 #[tauri::command]
 pub async fn clear_pycache(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    ensure_instance_stopped(&state, &instance_id).await?;
+    if state.process_manager.is_tracked(&instance_id) {
+        return Err(AppError::instance_running());
+    }
     instance::clear_pycache(&instance_id)
 }
 
@@ -424,7 +423,9 @@ pub async fn update_instance(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    ensure_instance_stopped(&state, &instance_id).await?;
+    if state.process_manager.is_tracked(&instance_id) {
+        return Err(AppError::instance_running());
+    }
 
     instance::update_instance(
         &instance_id,
@@ -481,14 +482,18 @@ pub async fn get_instance_port(instance_id: String, state: State<'_, AppState>) 
 
 #[tauri::command]
 pub async fn create_backup(instance_id: String, state: State<'_, AppState>) -> Result<String> {
-    ensure_instance_stopped(&state, &instance_id).await?;
+    if state.process_manager.is_tracked(&instance_id) {
+        return Err(AppError::instance_running());
+    }
     backup::create_backup(&instance_id, false)
 }
 
 #[tauri::command]
 pub async fn restore_backup(backup_path: String, state: State<'_, AppState>) -> Result<()> {
     let (resolved_path, metadata) = backup::resolve_restore_backup_input(&backup_path)?;
-    ensure_instance_stopped(&state, &metadata.instance_id).await?;
+    if state.process_manager.is_tracked(&metadata.instance_id) {
+        return Err(AppError::instance_running());
+    }
     backup::restore_backup_with_input(resolved_path, metadata)
 }
 

@@ -20,7 +20,7 @@ export function InstanceStatusTag({ instance, deployProgress }: InstanceStatusTa
       ? 'green'
       : instance.state === 'unhealthy'
         ? 'red'
-        : instance.state === 'starting'
+        : instance.state === 'starting' || instance.state === 'stopping'
           ? 'processing'
           : 'default';
   const tagText =
@@ -30,7 +30,9 @@ export function InstanceStatusTag({ instance, deployProgress }: InstanceStatusTa
         ? '不健康'
         : instance.state === 'starting'
           ? '启动中'
-          : '已停止';
+          : instance.state === 'stopping'
+            ? '正在停止'
+            : '已停止';
 
   return (
     <Space size="small">

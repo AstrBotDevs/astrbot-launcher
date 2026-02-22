@@ -39,12 +39,13 @@ const UNHEALTHY_THRESHOLD: u32 = 3;
 #[cfg(target_os = "windows")]
 const PROCESS_EXIT_THRESHOLD: u32 = 5;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstanceState {
     Stopped,
     Starting,
     Running,
+    Stopping,
     Unhealthy,
 }
 
@@ -53,6 +54,7 @@ pub enum InstanceState {
 pub enum RuntimeEventReason {
     ProcessTracked,
     ProcessRemoved,
+    StateChanged,
     HealthUnhealthy,
     HealthRestored,
 }

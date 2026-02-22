@@ -131,7 +131,7 @@ pub async fn delete_instance(
     validate_instance_id(instance_id)?;
     log::info!("Deleting instance {}", instance_id);
 
-    if process_manager.is_running(instance_id).await {
+    if process_manager.is_tracked(instance_id) {
         return Err(AppError::instance_running());
     }
 

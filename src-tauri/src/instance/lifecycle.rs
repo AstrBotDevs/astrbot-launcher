@@ -57,7 +57,7 @@ pub async fn start_instance(
     validate_instance_id(instance_id)?;
     log::debug!("Starting instance {}", instance_id);
 
-    if process_manager.is_running(instance_id).await {
+    if process_manager.is_tracked(instance_id) {
         return Err(AppError::instance_running());
     }
 
@@ -303,23 +303,23 @@ pub async fn start_instance(
 
 /// Stop an instance with graceful shutdown.
 ///
-/// Removes the instance from tracking, then waits for graceful shutdown to complete
-/// before returning.
+/// Transitions the instance to Stopping state, performs graceful shutdown,
+/// then removes it from tracking.
 pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManager>) -> Result<()> {
     validate_instance_id(instance_id)?;
     log::debug!("Stopping instance {}", instance_id);
 
-    let info = process_manager
-        .remove(instance_id)
+    let (pid, exe_path) = process_manager
+        .begin_stop(instance_id)
         .ok_or_else(AppError::instance_not_running)?;
 
-    let pid = info.pid;
-    let exe_path = info.executable_path;
-    tokio::task::spawn_blocking(move || graceful_shutdown(&[(pid, exe_path.as_path())]))
-        .await
-        .map_err(|e| AppError::process(format!("Failed to wait for graceful shutdown: {}", e)))?;
+    let shutdown_result =
+        tokio::task::spawn_blocking(move || graceful_shutdown(&[(pid, exe_path.as_path())]))
+            .await
+            .map_err(|e| AppError::process(format!("Failed to wait for graceful shutdown: {}", e)));
 
-    Ok(())
+    process_manager.remove(instance_id);
+    shutdown_result
 }
 
 /// Restart an instance.
@@ -331,7 +331,7 @@ pub async fn restart_instance(
     validate_instance_id(instance_id)?;
     log::debug!("Restarting instance {}", instance_id);
 
-    if process_manager.is_running(instance_id).await {
+    if process_manager.is_tracked(instance_id) {
         stop_instance(instance_id, Arc::clone(&process_manager)).await?;
     }
     start_instance(instance_id, app_handle, process_manager).await

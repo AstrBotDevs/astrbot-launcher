@@ -265,6 +265,10 @@ export default function Dashboard() {
             message.info('实例已停止');
             return false;
           }
+          if (instance.state === 'stopping') {
+            message.info('实例正在停止');
+            return false;
+          }
           return true;
         },
       });
