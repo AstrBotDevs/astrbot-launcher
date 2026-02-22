@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
-use reqwest::{Client, Proxy};
+use reqwest::{Client, NoProxy, Proxy};
 use tauri::{AppHandle, State};
 
 use crate::backup;
@@ -17,7 +17,7 @@ use crate::error::{AppError, Result};
 use crate::github::{self, GitHubRelease};
 use crate::instance::{self, InstanceStatus, ProcessManager};
 use crate::platform;
-use crate::proxy::build_proxy_url;
+use crate::proxy::{build_no_proxy_value, build_proxy_url};
 use crate::sync_utils::{read_lock_recover, write_lock_recover};
 
 fn sort_installed_versions_semver(versions: &mut [InstalledVersion]) {
@@ -81,8 +81,9 @@ fn build_http_client_with_proxy_fields(
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
 
     if let Some(proxy_url) = build_proxy_url(url, port, username, password)? {
-        let proxy =
-            Proxy::all(proxy_url).map_err(|e| AppError::config(format!("代理地址无效: {}", e)))?;
+        let proxy = Proxy::all(proxy_url)
+            .map_err(|e| AppError::config(format!("代理地址无效: {}", e)))?
+            .no_proxy(NoProxy::from_string(&build_no_proxy_value()));
         builder = builder.proxy(proxy);
     }
 
