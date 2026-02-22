@@ -10,10 +10,7 @@ use crate::archive::extract_zip_flat;
 use crate::component;
 use crate::config::{load_config, load_manifest, with_config_mut};
 use crate::error::{AppError, Result};
-use crate::paths::{
-    get_instance_core_dir, get_instance_pip_deps_marker_path, get_instance_venv_dir,
-    get_venv_python,
-};
+use crate::paths::{get_instance_core_dir, get_instance_venv_dir, get_venv_python};
 use crate::validation::validate_instance_id;
 
 /// Emit deployment progress event.
@@ -160,31 +157,12 @@ async fn sync_dependencies(instance_id: &str, venv_python: &Path, core_path: &Pa
         }
     }
 
-    // Pip mode: drop a marker file after successful install so future starts can skip.
     let requirements_path = core_path.join("requirements.txt");
     if !requirements_path.exists() {
         return Ok(());
     }
 
-    let marker_path = get_instance_pip_deps_marker_path(instance_id);
-    if marker_path.exists() {
-        log::info!(
-            "Skip pip requirements install for instance {}: marker exists",
-            instance_id
-        );
-        return Ok(());
-    }
-
     component::pip_install_requirements(venv_python, core_path, &config.pypi_mirror).await?;
-
-    if let Err(e) = std::fs::write(&marker_path, "ok\n") {
-        log::warn!(
-            "Failed to write pip deps marker for instance {} at {:?}: {}",
-            instance_id,
-            marker_path,
-            e
-        );
-    }
 
     Ok(())
 }

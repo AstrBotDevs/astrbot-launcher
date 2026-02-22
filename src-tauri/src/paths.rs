@@ -59,11 +59,6 @@ pub fn get_instance_venv_dir(instance_id: &str) -> PathBuf {
     get_instance_dir(instance_id).join("venv")
 }
 
-/// Get pip dependency installation marker path for an instance.
-pub fn get_instance_pip_deps_marker_path(instance_id: &str) -> PathBuf {
-    get_instance_venv_dir(instance_id).join(".pip_deps_installed")
-}
-
 /// Get the versions directory.
 pub fn get_versions_dir() -> PathBuf {
     get_data_dir().join("versions")
