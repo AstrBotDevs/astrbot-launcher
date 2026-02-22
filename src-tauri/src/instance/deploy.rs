@@ -144,8 +144,7 @@ async fn sync_dependencies(instance_id: &str, venv_python: &Path, core_path: &Pa
     if use_uv {
         if component::is_uv_installed() {
             let venv_dir = get_instance_venv_dir(instance_id);
-            return component::uv_sync(venv_python, &venv_dir, core_path, &config.pypi_mirror)
-                .await;
+            return component::uv_sync(venv_python, &venv_dir, core_path, &config).await;
         }
 
         // uv component disappeared unexpectedly: auto-disable and fall back to pip.
@@ -162,7 +161,7 @@ async fn sync_dependencies(instance_id: &str, venv_python: &Path, core_path: &Pa
         return Ok(());
     }
 
-    component::pip_install_requirements(venv_python, core_path, &config.pypi_mirror).await?;
+    component::pip_install_requirements(venv_python, core_path, &config).await?;
 
     Ok(())
 }

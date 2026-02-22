@@ -6,7 +6,7 @@ use tokio::process::Command;
 
 use super::common::{install_from_archive_with_progress, normalize_default_index};
 use crate::archive::ArchiveFormat;
-use crate::config::load_config;
+use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
 use crate::github::wrap_with_proxy;
 use crate::paths::{get_component_dir, get_uv_cache_dir, get_uv_exe_path, get_uvx_exe_path};
@@ -36,7 +36,7 @@ pub async fn uv_sync(
     venv_python: &std::path::Path,
     venv_dir: &std::path::Path,
     core_dir: &std::path::Path,
-    pypi_mirror: &str,
+    config: &AppConfig,
 ) -> Result<()> {
     let uv_exe = get_uv_executable()?;
 
@@ -44,24 +44,10 @@ pub async fn uv_sync(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;
 
-    let default_index = normalize_default_index(pypi_mirror);
-    let loaded_config = load_config();
-    let ignore_external_path = loaded_config
-        .as_ref()
-        .map(|cfg| cfg.ignore_external_path)
-        .unwrap_or(false);
-    let new_path = crate::component::build_instance_path(venv_python, ignore_external_path)?;
-    let proxy_env_vars = match loaded_config {
-        Ok(cfg) => match proxy::build_proxy_env_vars(&cfg) {
-            Ok(vars) => vars,
-            Err(e) => {
-                log::warn!(
-                    "Failed to prepare proxy env for uv sync, fallback to no proxy: {}",
-                    e
-                );
-                Vec::new()
-            }
-        },
+    let default_index = normalize_default_index(&config.pypi_mirror);
+    let new_path = crate::component::build_instance_path(venv_python, config.ignore_external_path)?;
+    let proxy_env_vars = match proxy::build_proxy_env_vars(config) {
+        Ok(vars) => vars,
         Err(e) => {
             log::warn!(
                 "Failed to prepare proxy env for uv sync, fallback to no proxy: {}",

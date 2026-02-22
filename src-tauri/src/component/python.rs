@@ -6,7 +6,7 @@ use tokio::process::Command;
 
 use super::common::{install_from_archive_with_progress, normalize_default_index};
 use crate::archive::ArchiveFormat;
-use crate::config::load_config;
+use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
 use crate::github::{fetch_python_releases, wrap_with_proxy};
 use crate::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
@@ -93,7 +93,7 @@ pub(super) async fn reinstall_component(
 pub async fn pip_install_requirements(
     venv_python: &std::path::Path,
     core_path: &std::path::Path,
-    pypi_mirror: &str,
+    config: &AppConfig,
 ) -> Result<()> {
     let requirements_path = core_path.join("requirements.txt");
     if !requirements_path.exists() {
@@ -104,24 +104,10 @@ pub async fn pip_install_requirements(
         .to_str()
         .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
         .to_string();
-    let default_index = normalize_default_index(pypi_mirror);
-    let loaded_config = load_config();
-    let ignore_external_path = loaded_config
-        .as_ref()
-        .map(|cfg| cfg.ignore_external_path)
-        .unwrap_or(false);
-    let new_path = crate::component::build_instance_path(venv_python, ignore_external_path)?;
-    let proxy_env_vars = match loaded_config {
-        Ok(cfg) => match proxy::build_proxy_env_vars(&cfg) {
-            Ok(vars) => vars,
-            Err(e) => {
-                log::warn!(
-                    "Failed to prepare proxy env for pip install, fallback to no proxy: {}",
-                    e
-                );
-                Vec::new()
-            }
-        },
+    let default_index = normalize_default_index(&config.pypi_mirror);
+    let new_path = crate::component::build_instance_path(venv_python, config.ignore_external_path)?;
+    let proxy_env_vars = match proxy::build_proxy_env_vars(config) {
+        Ok(vars) => vars,
         Err(e) => {
             log::warn!(
                 "Failed to prepare proxy env for pip install, fallback to no proxy: {}",
