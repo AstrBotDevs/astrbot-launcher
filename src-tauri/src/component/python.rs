@@ -100,20 +100,11 @@ pub async fn pip_install_requirements(
         return Ok(());
     }
 
-    let mut args = vec![
-        "-m".to_string(),
-        "pip".to_string(),
-        "install".to_string(),
-        "-r".to_string(),
-        requirements_path
-            .to_str()
-            .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
-            .to_string(),
-    ];
-
+    let requirements_path_arg = requirements_path
+        .to_str()
+        .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
+        .to_string();
     let default_index = normalize_default_index(pypi_mirror);
-    args.push("-i".to_string());
-    args.push(default_index);
     let loaded_config = load_config();
     let ignore_external_path = loaded_config
         .as_ref()
@@ -141,7 +132,14 @@ pub async fn pip_install_requirements(
     };
 
     let mut cmd = Command::new(venv_python);
-    cmd.args(&args)
+    cmd.arg("-m")
+        .arg("pip")
+        .arg("install")
+        .arg("-qqq")
+        .arg("-r")
+        .arg(&requirements_path_arg)
+        .arg("-i")
+        .arg(&default_index)
         .env("PATH", new_path)
         .env_remove("PYTHONHOME");
     proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
