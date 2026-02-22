@@ -79,8 +79,8 @@ pub async fn reinstall_component(
 
 /// Build the PATH environment variable for an instance.
 ///
-/// Order: venv_bin → uv dir → nodejs shim dir → system PATH
-pub fn build_instance_path(venv_python: &Path) -> Result<OsString> {
+/// Order: venv_bin → uv dir → nodejs shim dir → (optional) system PATH
+pub fn build_instance_path(venv_python: &Path, ignore_external_path: bool) -> Result<OsString> {
     let venv_bin = venv_python
         .parent()
         .ok_or_else(|| AppError::io("Invalid venv python path"))?;
@@ -101,12 +101,14 @@ pub fn build_instance_path(venv_python: &Path) -> Result<OsString> {
         paths.push(get_nodejs_shim_dir());
     }
 
-    // Append system PATH (filtering duplicates)
-    if let Some(existing) = env::var_os("PATH") {
-        let extra: Vec<_> = env::split_paths(&existing)
-            .filter(|p| !paths.contains(p))
-            .collect();
-        paths.extend(extra);
+    if !ignore_external_path {
+        // Append system PATH (filtering duplicates)
+        if let Some(existing) = env::var_os("PATH") {
+            let extra: Vec<_> = env::split_paths(&existing)
+                .filter(|p| !paths.contains(p))
+                .collect();
+            paths.extend(extra);
+        }
     }
 
     env::join_paths(paths)

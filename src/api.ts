@@ -29,6 +29,8 @@ export const api = {
     invoke<void>('save_check_instance_update', { checkInstanceUpdate }),
   savePersistInstanceState: (persistInstanceState: boolean) =>
     invoke<void>('save_persist_instance_state', { persistInstanceState }),
+  saveIgnoreExternalPath: (ignoreExternalPath: boolean) =>
+    invoke<void>('save_ignore_external_path', { ignoreExternalPath }),
 
   // ========================================
   // Components

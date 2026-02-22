@@ -291,6 +291,11 @@ define_save_config_command!(
     persist_instance_state: bool,
     persist_instance_state
 );
+define_save_config_command!(
+    save_ignore_external_path,
+    ignore_external_path: bool,
+    ignore_external_path
+);
 
 // === Components ===
 

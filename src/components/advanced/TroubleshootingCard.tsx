@@ -1,4 +1,4 @@
-import { Button, Card, Select, Space, Alert, Typography } from 'antd';
+import { Alert, Button, Card, Select, Space, Switch, Typography } from 'antd';
 import { PlayCircleOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -18,6 +18,8 @@ interface ActionRowProps {
 
 interface TroubleshootingCardProps {
   runningInstancesCount: number;
+  ignoreExternalPath: boolean;
+  ignoreExternalPathSaving: boolean;
   instanceOptions: InstanceOption[];
   stoppedInstanceOptions: InstanceOption[];
   selectedDataInstance: string | null;
@@ -33,6 +35,7 @@ interface TroubleshootingCardProps {
   onOpenClearData: () => void;
   onOpenClearVenv: () => void;
   onOpenClearPycache: () => void;
+  onIgnoreExternalPathChange: (checked: boolean) => void;
 }
 
 function ActionRow({
@@ -73,6 +76,8 @@ function ActionRow({
 
 export function TroubleshootingCard({
   runningInstancesCount,
+  ignoreExternalPath,
+  ignoreExternalPathSaving,
   instanceOptions,
   stoppedInstanceOptions,
   selectedDataInstance,
@@ -88,9 +93,24 @@ export function TroubleshootingCard({
   onOpenClearData,
   onOpenClearVenv,
   onOpenClearPycache,
+  onIgnoreExternalPathChange,
 }: TroubleshootingCardProps) {
   return (
     <Card title="故障排除" size="small" style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Text style={{ width: 140 }}>无视外界PATH:</Text>
+          <Switch
+            checked={ignoreExternalPath}
+            loading={ignoreExternalPathSaving}
+            onChange={onIgnoreExternalPathChange}
+          />
+        </div>
+        <Text type="secondary" style={{ display: 'block', marginTop: 8, marginLeft: 140 }}>
+          开启后启动实例时不再合并系统 PATH
+        </Text>
+      </div>
+
       {runningInstancesCount > 0 && (
         <Alert
           title="提示"

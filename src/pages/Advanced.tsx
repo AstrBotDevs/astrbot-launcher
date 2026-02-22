@@ -168,6 +168,14 @@ export default function Advanced() {
     });
   };
 
+  const handleIgnoreExternalPathChange = async (checked: boolean) => {
+    await handleSaveSetting({
+      key: OPERATION_KEYS.advancedSaveIgnoreExternalPath,
+      save: () => api.saveIgnoreExternalPath(checked),
+      successMessage: '设置已保存',
+    });
+  };
+
   const handleAutostartChange = async (checked: boolean) => {
     await runOperation({
       key: OPERATION_KEYS.advancedSaveAutostart,
@@ -383,6 +391,8 @@ export default function Advanced() {
   const clearPycacheLoading = selectedPycacheInstance
     ? operations[OPERATION_KEYS.advancedClearPycache(selectedPycacheInstance)] || false
     : false;
+  const ignoreExternalPathSaving =
+    operations[OPERATION_KEYS.advancedSaveIgnoreExternalPath] || false;
 
   const getConfirmLoading = () => {
     switch (confirmModal) {
@@ -491,6 +501,8 @@ export default function Advanced() {
 
       <TroubleshootingCard
         runningInstancesCount={runningInstances.length}
+        ignoreExternalPath={config?.ignore_external_path ?? false}
+        ignoreExternalPathSaving={ignoreExternalPathSaving}
         instanceOptions={instanceOptions}
         stoppedInstanceOptions={stoppedInstanceOptions}
         selectedDataInstance={selectedDataInstance}
@@ -506,6 +518,7 @@ export default function Advanced() {
         onOpenClearData={() => setConfirmModal('clearData')}
         onOpenClearVenv={() => setConfirmModal('clearVenv')}
         onOpenClearPycache={() => setConfirmModal('clearPycache')}
+        onIgnoreExternalPathChange={handleIgnoreExternalPathChange}
       />
 
       {/* Confirm Modal */}

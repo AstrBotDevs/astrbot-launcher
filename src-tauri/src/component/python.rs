@@ -114,8 +114,23 @@ pub async fn pip_install_requirements(
     let default_index = normalize_default_index(pypi_mirror);
     args.push("-i".to_string());
     args.push(default_index);
-    let proxy_env_vars = match load_config().and_then(|cfg| proxy::build_proxy_env_vars(&cfg)) {
-        Ok(vars) => vars,
+    let loaded_config = load_config();
+    let ignore_external_path = loaded_config
+        .as_ref()
+        .map(|cfg| cfg.ignore_external_path)
+        .unwrap_or(false);
+    let new_path = crate::component::build_instance_path(venv_python, ignore_external_path)?;
+    let proxy_env_vars = match loaded_config {
+        Ok(cfg) => match proxy::build_proxy_env_vars(&cfg) {
+            Ok(vars) => vars,
+            Err(e) => {
+                log::warn!(
+                    "Failed to prepare proxy env for pip install, fallback to no proxy: {}",
+                    e
+                );
+                Vec::new()
+            }
+        },
         Err(e) => {
             log::warn!(
                 "Failed to prepare proxy env for pip install, fallback to no proxy: {}",
@@ -126,7 +141,9 @@ pub async fn pip_install_requirements(
     };
 
     let mut cmd = Command::new(venv_python);
-    cmd.args(&args).env_remove("PYTHONHOME");
+    cmd.args(&args)
+        .env("PATH", new_path)
+        .env_remove("PYTHONHOME");
     proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
 
     #[cfg(target_os = "windows")]

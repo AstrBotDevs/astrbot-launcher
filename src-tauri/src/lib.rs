@@ -120,6 +120,7 @@ pub fn run() {
             commands::compare_versions,
             commands::save_check_instance_update,
             commands::save_persist_instance_state,
+            commands::save_ignore_external_path,
             commands::is_macos,
             // Components
             commands::install_component,
