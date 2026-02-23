@@ -50,7 +50,7 @@ fn spawn_event_forwarder(app: &tauri::App) {
             match rx.recv().await {
                 Ok(_event) => {
                     if let Ok(snapshot) =
-                        commands::build_app_snapshot_with(&pm, load_config, load_manifest).await
+                        commands::build_app_snapshot_with(&pm, load_config, load_manifest)
                     {
                         let _ = app_handle.emit("app-snapshot", &snapshot);
                     }

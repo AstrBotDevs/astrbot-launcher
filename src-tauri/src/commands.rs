@@ -77,14 +77,14 @@ fn apply_uv_fallback(config: &mut AppConfig) {
     }
 }
 
-pub(crate) async fn build_app_snapshot_with(
+pub(crate) fn build_app_snapshot_with(
     process_manager: &ProcessManager,
     load_config_fn: fn() -> Result<Arc<AppConfig>>,
     load_manifest_fn: fn() -> Result<Arc<AppManifest>>,
 ) -> Result<AppSnapshot> {
     let config = load_config_fn()?;
     let manifest = load_manifest_fn()?;
-    let instances = instance::list_instances(process_manager, manifest.as_ref()).await?;
+    let instances = instance::list_instances(process_manager, manifest.as_ref())?;
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
     apply_uv_fallback(&mut config_for_snapshot);
@@ -102,12 +102,12 @@ pub(crate) async fn build_app_snapshot_with(
 
 #[tauri::command]
 pub async fn get_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, load_config, load_manifest).await
+    build_app_snapshot_with(&state.process_manager, load_config, load_manifest)
 }
 
 #[tauri::command]
 pub async fn rebuild_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, reload_config, reload_manifest).await
+    build_app_snapshot_with(&state.process_manager, reload_config, reload_manifest)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

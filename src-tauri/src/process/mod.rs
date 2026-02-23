@@ -3,6 +3,7 @@
 mod control;
 mod health;
 mod manager;
+mod monitor;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod libc_api;
