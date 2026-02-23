@@ -17,7 +17,7 @@ const USER_AGENT: &str = concat!(
     env!("CARGO_PKG_NAME"),
     "/",
     env!("CARGO_PKG_VERSION"),
-    " (+https://github.com/raven95676/astrbot-launcher)"
+    " (+https://github.com/AstrBotDevs/astrbot-launcher)"
 );
 
 #[derive(Debug, Clone, serde::Serialize)]
