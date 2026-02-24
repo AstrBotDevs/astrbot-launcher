@@ -1,8 +1,10 @@
-//! Instance lifecycle management (start/stop/restart).
+//! Instance lifecycle management — pure functions.
+//!
+//! These functions do not interact with `ProcessManager`. On success they return
+//! a `LaunchResult`; the coordinator handles all state transitions.
 
 use std::path::PathBuf;
 use std::process::ExitStatus;
-use std::sync::Arc;
 
 use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt as _, BufReader};
@@ -16,7 +18,7 @@ use crate::config::{load_config, load_manifest};
 use crate::error::{AppError, Result};
 use crate::process::{
     can_signal_expected_process, check_port_available, find_available_port, force_kill,
-    graceful_shutdown, resolve_process_executable_path, InstanceState, ProcessManager,
+    graceful_shutdown, is_expected_process_alive, resolve_process_executable_path,
 };
 use crate::utils::index_url::normalize_default_index;
 use crate::utils::log_bus as log_channel;
@@ -27,6 +29,14 @@ use crate::utils::proxy;
 use crate::utils::validation::validate_instance_id;
 
 const STARTUP_LOG_TIMEOUT_SECS: u64 = 300;
+
+/// Result of a successful instance launch.
+pub struct LaunchResult {
+    pub pid: u32,
+    pub executable_path: PathBuf,
+    pub port: u16,
+    pub dashboard_enabled: bool,
+}
 
 /// Resolve the executable path for a freshly spawned child, killing it on failure.
 async fn resolve_child_executable_path(
@@ -49,18 +59,16 @@ async fn resolve_child_executable_path(
     )))
 }
 
-/// Start an instance. Will deploy first if not already deployed.
-pub async fn start_instance(
+/// Launch an instance: deploy, spawn, wait for startup.
+///
+/// Does NOT interact with ProcessManager. On failure, cleans up (kills child
+/// if spawned). On success, returns `LaunchResult`.
+pub async fn launch_instance(
     instance_id: &str,
     app_handle: &AppHandle,
-    process_manager: Arc<ProcessManager>,
-) -> Result<u16> {
+) -> Result<LaunchResult> {
     validate_instance_id(instance_id)?;
     log::debug!("Starting instance {}", instance_id);
-
-    if process_manager.is_tracked(instance_id) {
-        return Err(AppError::instance_running());
-    }
 
     // Always run deployment preflight before each start:
     // self-heal extraction/venv and re-sync dependencies.
@@ -165,15 +173,6 @@ pub async fn start_instance(
         .ok_or_else(|| AppError::process("Failed to get process ID"))?;
     let executable_path = resolve_child_executable_path(&mut child, pid).await?;
 
-    // Store process info with port and dashboard_enabled
-    process_manager.set_process(
-        instance_id,
-        pid,
-        executable_path.clone(),
-        port,
-        dashboard_enabled,
-    );
-
     let stdout = child
         .stdout
         .take()
@@ -195,8 +194,6 @@ pub async fn start_instance(
 
     // Wait for child process in background and report early-exit signal
     let instance_id_wait = instance_id.to_string();
-    let process_manager_for_wait = Arc::clone(&process_manager);
-    let expected_pid = pid;
     let (exit_tx, mut exit_rx) = oneshot::channel::<std::result::Result<ExitStatus, String>>();
     tokio::spawn(async move {
         let wait_result = child
@@ -212,8 +209,6 @@ pub async fn start_instance(
             Err(err) => log::error!("Instance {} wait failed: {}", instance_id_wait, err),
         }
         let _ = exit_tx.send(wait_result);
-        // Only mark the PID as exited; the runtime monitor handles cleanup.
-        process_manager_for_wait.mark_pid_exited(&instance_id_wait, expected_pid);
     });
 
     // Unified startup detection via log output
@@ -242,7 +237,6 @@ pub async fn start_instance(
         startup_signal = startup_rx.recv() => {
             if startup_signal.is_none() {
                 log::error!("Instance {} startup log stream closed unexpectedly", instance_id);
-                process_manager.remove(instance_id);
                 return Err(AppError::process(
                     "Failed to detect startup completion from log stream",
                 ));
@@ -254,9 +248,13 @@ pub async fn start_instance(
                 pid,
                 port
             );
-            process_manager.set_state(instance_id, InstanceState::Running);
             emit_progress(app_handle, instance_id, "done", "实例已启动", 100);
-            Ok(port)
+            Ok(LaunchResult {
+                pid,
+                executable_path,
+                port,
+                dashboard_enabled,
+            })
         }
         exit_result = &mut exit_rx => {
             let detail = match exit_result {
@@ -271,7 +269,6 @@ pub async fn start_instance(
                 Err(_) => "Instance exited before startup completed".to_string(),
             };
             log::error!("Instance {} failed to start: {}", instance_id, detail);
-            process_manager.remove(instance_id);
             Err(AppError::process(detail))
         }
         _ = &mut timeout => {
@@ -296,44 +293,27 @@ pub async fn start_instance(
                     pid
                 );
             }
-            process_manager.remove(instance_id);
             Err(AppError::startup_timeout())
         }
     }
 }
 
-/// Stop an instance with graceful shutdown.
+/// Graceful shutdown of a single instance process.
 ///
-/// Transitions the instance to Stopping state, performs graceful shutdown,
-/// then removes it from tracking.
-pub async fn stop_instance(instance_id: &str, process_manager: Arc<ProcessManager>) -> Result<()> {
-    validate_instance_id(instance_id)?;
-    log::debug!("Stopping instance {}", instance_id);
-
-    let (pid, exe_path) = process_manager
-        .begin_stop(instance_id)
-        .ok_or_else(AppError::instance_not_running)?;
-
-    let shutdown_result =
-        tokio::task::spawn_blocking(move || graceful_shutdown(&[(pid, exe_path.as_path())]))
-            .await
-            .map_err(|e| AppError::process(format!("Failed to wait for graceful shutdown: {}", e)));
-
-    process_manager.remove(instance_id);
-    shutdown_result
-}
-
-/// Restart an instance.
-pub async fn restart_instance(
-    instance_id: &str,
-    app_handle: &AppHandle,
-    process_manager: Arc<ProcessManager>,
-) -> Result<u16> {
-    validate_instance_id(instance_id)?;
-    log::debug!("Restarting instance {}", instance_id);
-
-    if process_manager.is_tracked(instance_id) {
-        stop_instance(instance_id, Arc::clone(&process_manager)).await?;
-    }
-    start_instance(instance_id, app_handle, process_manager).await
+/// Returns `Ok` if the process exited. Returns `Err` if the process is still
+/// alive after signal + wait + force-kill, or if the blocking task panicked.
+pub async fn shutdown_instance(pid: u32, executable_path: PathBuf) -> Result<()> {
+    tokio::task::spawn_blocking(move || {
+        graceful_shutdown(&[(pid, executable_path.as_path())]);
+        if is_expected_process_alive(pid, &executable_path) {
+            Err(AppError::process(format!(
+                "Process {} is still alive after shutdown",
+                pid
+            )))
+        } else {
+            Ok(())
+        }
+    })
+    .await
+    .map_err(|e| AppError::process(format!("Shutdown task panicked: {}", e)))?
 }

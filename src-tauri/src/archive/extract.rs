@@ -4,22 +4,6 @@ use std::path::Path;
 
 use crate::error::{AppError, Result};
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn set_unix_permissions(path: &Path, mode: Option<u32>) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-
-    if let Some(mode) = mode {
-        fs::set_permissions(path, fs::Permissions::from_mode(mode))
-            .map_err(|e| AppError::io(format!("failed to set permissions on {path:?}: {e}")))?;
-    }
-    Ok(())
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn set_unix_permissions(_path: &Path, _mode: Option<u32>) -> Result<()> {
-    Ok(())
-}
-
 pub(super) fn write_entry<R>(
     out_path: &Path,
     is_dir: bool,
@@ -52,6 +36,13 @@ where
             )));
         }
     }
-    set_unix_permissions(out_path, unix_mode)?;
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    if let Some(mode) = unix_mode {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(out_path, fs::Permissions::from_mode(mode))
+            .map_err(|e| AppError::io(format!("failed to set permissions on {out_path:?}: {e}")))?;
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = unix_mode;
     Ok(())
 }

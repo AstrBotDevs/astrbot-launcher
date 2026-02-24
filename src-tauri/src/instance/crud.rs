@@ -1,7 +1,5 @@
 //! Instance CRUD operations.
 
-use std::sync::Arc;
-
 use tauri::AppHandle;
 
 use super::deploy::{deploy_instance_with_version, emit_progress};
@@ -9,7 +7,7 @@ use super::types::{CmdConfig, InstanceStatus};
 use crate::backup::{create_backup, delete_backup, restore_data_to_instance};
 use crate::config::{load_manifest, with_manifest_mut, AppManifest, InstanceConfig};
 use crate::error::{AppError, Result};
-use crate::process::{InstanceRuntimeSnapshot, InstanceState, ProcessManager};
+use crate::process::{InstanceRuntimeInfo, InstanceState, ProcessManager};
 use crate::utils::paths::{get_instance_core_dir, get_instance_dir, get_instance_venv_dir};
 use crate::utils::validation::validate_instance_id;
 
@@ -123,17 +121,11 @@ pub fn create_instance(name: &str, version: &str, port: u16) -> Result<()> {
     })
 }
 
-/// Delete an instance.
-pub async fn delete_instance(
-    instance_id: &str,
-    process_manager: Arc<ProcessManager>,
-) -> Result<()> {
+/// Delete an instance. Caller must ensure the instance is not running
+/// (e.g. by acquiring a guard).
+pub fn delete_instance(instance_id: &str) -> Result<()> {
     validate_instance_id(instance_id)?;
     log::info!("Deleting instance {}", instance_id);
-
-    if process_manager.is_tracked(instance_id) {
-        return Err(AppError::instance_running());
-    }
 
     with_manifest_mut(|manifest| {
         manifest
@@ -257,39 +249,51 @@ pub async fn update_instance(
 }
 
 /// List all instances with their running status.
-pub async fn list_instances(
+pub fn list_instances(
     process_manager: &ProcessManager,
     manifest: &AppManifest,
-) -> Result<Vec<InstanceStatus>> {
-    let runtime_snapshot = process_manager.get_runtime_snapshot().await;
+) -> Vec<InstanceStatus> {
+    let runtime_info = process_manager.get_runtime_info();
 
-    Ok(manifest
+    manifest
         .instances
         .iter()
-        .map(|(id, inst)| (id.clone(), inst.clone()))
         .map(|(id, inst)| {
-            let snapshot =
-                runtime_snapshot
-                    .get(&id)
-                    .cloned()
-                    .unwrap_or_else(|| InstanceRuntimeSnapshot {
-                        state: InstanceState::Stopped,
-                        port: 0,
-                        dashboard_enabled: is_dashboard_enabled(&id),
-                    });
+            let (state, port, dashboard_enabled) = match runtime_info.get(id) {
+                Some(InstanceRuntimeInfo::Starting) => (
+                    InstanceState::Starting,
+                    inst.port,
+                    is_dashboard_enabled(id),
+                ),
+                Some(InstanceRuntimeInfo::Live {
+                    state,
+                    port,
+                    dashboard_enabled,
+                }) => (*state, *port, *dashboard_enabled),
+                Some(InstanceRuntimeInfo::Stopping {
+                    port,
+                    dashboard_enabled,
+                }) => (InstanceState::Stopping, *port, *dashboard_enabled),
+                None => (
+                    InstanceState::Stopped,
+                    inst.port,
+                    is_dashboard_enabled(id),
+                ),
+            };
+
             let pid_tracker_not_available =
-                !snapshot.dashboard_enabled && std::env::consts::OS == "windows";
+                !dashboard_enabled && std::env::consts::OS == "windows";
 
             InstanceStatus {
-                id,
-                name: inst.name,
-                state: snapshot.state,
-                port: snapshot.port,
-                version: inst.version,
-                dashboard_enabled: snapshot.dashboard_enabled,
+                id: id.clone(),
+                name: inst.name.clone(),
+                state,
+                port,
+                version: inst.version.clone(),
+                dashboard_enabled,
                 pid_tracker_not_available,
                 configured_port: inst.port,
             }
         })
-        .collect())
+        .collect()
 }

@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use reqwest::Client;
 use tauri::{AppHandle, State};
@@ -14,8 +14,9 @@ use crate::config::{
 use crate::download;
 use crate::error::{AppError, Result};
 use crate::github::{self, GitHubRelease};
-use crate::instance::{self, InstanceStatus, ProcessManager};
+use crate::instance::{self, InstanceStatus};
 use crate::platform;
+use crate::process::ProcessManager;
 use crate::utils::index_url::normalize_default_index;
 use crate::utils::net::build_http_client_with_proxy_fields;
 use crate::utils::net::check_url;
@@ -38,7 +39,7 @@ fn sort_installed_versions_semver(versions: &mut [InstalledVersion]) {
 
 pub struct AppState {
     pub client: RwLock<Client>,
-    pub process_manager: Arc<ProcessManager>,
+    pub process_manager: ProcessManager,
 }
 
 impl AppState {
@@ -77,14 +78,14 @@ fn apply_uv_fallback(config: &mut AppConfig) {
     }
 }
 
-pub(crate) async fn build_app_snapshot_with(
+pub(crate) fn build_app_snapshot_with(
     process_manager: &ProcessManager,
-    load_config_fn: fn() -> Result<Arc<AppConfig>>,
-    load_manifest_fn: fn() -> Result<Arc<AppManifest>>,
+    load_config_fn: fn() -> Result<std::sync::Arc<AppConfig>>,
+    load_manifest_fn: fn() -> Result<std::sync::Arc<AppManifest>>,
 ) -> Result<AppSnapshot> {
     let config = load_config_fn()?;
     let manifest = load_manifest_fn()?;
-    let instances = instance::list_instances(process_manager, manifest.as_ref()).await?;
+    let instances = instance::list_instances(process_manager, manifest.as_ref());
     let backups = backup::list_backups()?;
     let mut config_for_snapshot = (*config).clone();
     apply_uv_fallback(&mut config_for_snapshot);
@@ -102,12 +103,20 @@ pub(crate) async fn build_app_snapshot_with(
 
 #[tauri::command]
 pub async fn get_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, load_config, load_manifest).await
+    let pm = state.process_manager.clone();
+    tokio::task::spawn_blocking(move || build_app_snapshot_with(&pm, load_config, load_manifest))
+        .await
+        .map_err(|e| AppError::process(format!("Snapshot task panicked: {}", e)))?
 }
 
 #[tauri::command]
 pub async fn rebuild_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, reload_config, reload_manifest).await
+    let pm = state.process_manager.clone();
+    tokio::task::spawn_blocking(move || {
+        build_app_snapshot_with(&pm, reload_config, reload_manifest)
+    })
+    .await
+    .map_err(|e| AppError::process(format!("Snapshot task panicked: {}", e)))?
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -336,25 +345,19 @@ pub async fn uninstall_version(version: String) -> Result<()> {
 
 #[tauri::command]
 pub async fn clear_instance_data(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    if state.process_manager.is_tracked(&instance_id) {
-        return Err(AppError::instance_running());
-    }
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::clear_instance_data(&instance_id)
 }
 
 #[tauri::command]
 pub async fn clear_instance_venv(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    if state.process_manager.is_tracked(&instance_id) {
-        return Err(AppError::instance_running());
-    }
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::clear_instance_venv(&instance_id)
 }
 
 #[tauri::command]
 pub async fn clear_pycache(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    if state.process_manager.is_tracked(&instance_id) {
-        return Err(AppError::instance_running());
-    }
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::clear_pycache(&instance_id)
 }
 
@@ -367,7 +370,8 @@ pub async fn create_instance(name: String, version: String, port: u16) -> Result
 
 #[tauri::command]
 pub async fn delete_instance(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    instance::delete_instance(&instance_id, Arc::clone(&state.process_manager)).await
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
+    instance::delete_instance(&instance_id)
 }
 
 #[tauri::command]
@@ -379,10 +383,7 @@ pub async fn update_instance(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    if state.process_manager.is_tracked(&instance_id) {
-        return Err(AppError::instance_running());
-    }
-
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::update_instance(
         &instance_id,
         name.as_deref(),
@@ -399,17 +400,15 @@ pub async fn start_instance(
     instance_id: String,
     state: State<'_, AppState>,
 ) -> Result<u16> {
-    instance::start_instance(
-        &instance_id,
-        &app_handle,
-        Arc::clone(&state.process_manager),
-    )
-    .await
+    state
+        .process_manager
+        .start_instance(&instance_id, app_handle)
+        .await
 }
 
 #[tauri::command]
 pub async fn stop_instance(instance_id: String, state: State<'_, AppState>) -> Result<()> {
-    instance::stop_instance(&instance_id, Arc::clone(&state.process_manager)).await
+    state.process_manager.stop_instance(&instance_id).await
 }
 
 #[tauri::command]
@@ -418,12 +417,10 @@ pub async fn restart_instance(
     instance_id: String,
     state: State<'_, AppState>,
 ) -> Result<u16> {
-    instance::restart_instance(
-        &instance_id,
-        &app_handle,
-        Arc::clone(&state.process_manager),
-    )
-    .await
+    state
+        .process_manager
+        .restart_instance(&instance_id, app_handle)
+        .await
 }
 
 #[tauri::command]
@@ -438,18 +435,16 @@ pub async fn get_instance_port(instance_id: String, state: State<'_, AppState>) 
 
 #[tauri::command]
 pub async fn create_backup(instance_id: String, state: State<'_, AppState>) -> Result<String> {
-    if state.process_manager.is_tracked(&instance_id) {
-        return Err(AppError::instance_running());
-    }
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
     backup::create_backup(&instance_id, false)
 }
 
 #[tauri::command]
 pub async fn restore_backup(backup_path: String, state: State<'_, AppState>) -> Result<()> {
     let (resolved_path, metadata) = backup::resolve_restore_backup_input(&backup_path)?;
-    if state.process_manager.is_tracked(&metadata.instance_id) {
-        return Err(AppError::instance_running());
-    }
+    let _guard = state
+        .process_manager
+        .acquire_guard(&metadata.instance_id)?;
     backup::restore_backup_with_input(resolved_path, metadata)
 }
 

@@ -16,7 +16,7 @@ mod updater;
 mod utils;
 mod validation;
 
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use std::time::Duration;
 
 use reqwest::Client;
@@ -26,7 +26,7 @@ use tauri_plugin_log::{fern, Target, TargetKind};
 use commands::AppState;
 use config::{load_config, with_manifest_mut};
 pub use error::{AppError, ErrorKind, Result};
-use instance::ProcessManager;
+use process::ProcessManager;
 use utils::log_bus::LogEntry;
 
 #[allow(clippy::expect_used)]
@@ -42,9 +42,6 @@ pub fn run() {
     migration::run_startup_migrations();
     github::init_releases_cache();
 
-    let process_manager = Arc::new(ProcessManager::new());
-    let pm_for_exit = Arc::clone(&process_manager);
-    let pm_for_monitor = Arc::clone(&process_manager);
     let dispatch_sender = utils::log_bus::init_log_channel();
     let dispatch = tauri_plugin_log::fern::Dispatch::new().chain(
         tauri_plugin_log::fern::Output::call(move |record| {
@@ -91,10 +88,10 @@ pub fn run() {
                 });
             AppState {
                 client: RwLock::new(startup_client),
-                process_manager,
+                process_manager: ProcessManager::new(),
             }
         })
-        .setup(move |app| setup::on_setup(app, pm_for_monitor))
+        .setup(|app| setup::on_setup(app))
         .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if load_config().map(|c| c.close_to_tray).unwrap_or(true) {
@@ -146,12 +143,15 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(move |_, event| {
+        .run(move |app_handle, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                let state: tauri::State<'_, AppState> = app_handle.state();
                 // Persist tracked instance IDs if enabled
                 if let Ok(cfg) = load_config() {
                     if cfg.persist_instance_state {
-                        let tracked_ids = pm_for_exit.get_tracked_ids();
+                        let tracked_ids = state
+                            .process_manager
+                            .get_active_ids();
                         let _ = with_manifest_mut(|manifest| {
                             manifest.tracked_instances_snapshot = tracked_ids;
                             Ok(())
@@ -159,7 +159,7 @@ pub fn run() {
                     }
                 }
                 log::info!("Application exiting, stopping all instances...");
-                pm_for_exit.stop_all();
+                state.process_manager.stop_all_blocking();
             }
         });
 }

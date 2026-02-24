@@ -3,6 +3,7 @@
 mod control;
 mod health;
 mod manager;
+mod monitor;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) mod libc_api;
@@ -17,12 +18,21 @@ use serde::{Deserialize, Serialize};
 
 pub use control::{
     can_signal_expected_process, check_port_available, find_available_port, force_kill,
-    graceful_shutdown, resolve_process_executable_path,
+    graceful_shutdown, is_expected_process_alive, resolve_process_executable_path,
 };
 pub use manager::ProcessManager;
 
 /// Maximum backoff interval between health checks.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
+
+/// Capped exponential backoff: `2^count` seconds, clamped to [`MAX_BACKOFF`].
+///
+/// Shared by health checks and liveness probes so the formula stays in one
+/// place.  Callers can wrap this if they ever need independent tuning.
+pub(super) fn calculate_backoff(failure_count: u32) -> Duration {
+    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
+    Duration::from_secs(secs).min(MAX_BACKOFF)
+}
 
 /// Runtime monitor tick interval.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
@@ -33,11 +43,10 @@ const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(60);
 /// Number of consecutive health check failures before marking as unhealthy.
 const UNHEALTHY_THRESHOLD: u32 = 3;
 
-/// On Windows, number of consecutive health check failures before treating
-/// a failed process-alive check as definitive process exit.
-/// Derived from the backoff formula: `1 << 5 = 32 >= MAX_BACKOFF (30s)`.
+/// On Windows, number of consecutive liveness probe failures before treating
+/// process-alive as definitively false.
 #[cfg(target_os = "windows")]
-const PROCESS_EXIT_THRESHOLD: u32 = 5;
+const ALIVE_EXIT_THRESHOLD: u32 = 5;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -56,26 +65,49 @@ pub struct RuntimeEvent {
 }
 
 /// Information about a running instance.
+///
+/// The instance's health state (Running vs Unhealthy) is derived from
+/// `health_failure_count` rather than stored explicitly — see
+/// [`manager::derive_health_state`].
 #[derive(Debug, Clone)]
 pub struct InstanceProcess {
     pub pid: u32,
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
-    pub state: InstanceState,
-    /// Whether the original child PID has exited (reported by `child.wait()`).
-    pub(crate) pid_exited: bool,
     /// When to perform the next health check (for exponential backoff).
-    pub(crate) next_check_at: Option<std::time::Instant>,
+    pub(crate) next_health_check_at: Option<std::time::Instant>,
     /// Number of consecutive health check failures.
-    pub(crate) failure_count: u32,
+    pub(crate) health_failure_count: u32,
+    /// Number of consecutive failed liveness probes.
+    /// Always 0 on non-Windows (no retry mechanism).
+    pub(crate) alive_failure_count: u32,
+    /// When to perform the next liveness probe (for exponential backoff).
+    /// Always `None` on non-Windows (no retry mechanism).
+    pub(crate) next_alive_check_at: Option<std::time::Instant>,
 }
 
+/// Typed runtime info returned by the process manager.
+///
+/// Each variant carries only data the ProcessManager uniquely owns.
+/// Config-derived fields (configured port, dashboard_enabled when stopped)
+/// are read from their sources of truth at snapshot assembly time.
 #[derive(Debug, Clone)]
-pub struct InstanceRuntimeSnapshot {
-    pub state: InstanceState,
-    pub port: u16,
-    pub dashboard_enabled: bool,
+pub enum InstanceRuntimeInfo {
+    /// Launch in progress — config-derived fields are read from their
+    /// sources of truth at snapshot assembly time.
+    Starting,
+    /// Process running. Health state derived from `InstanceProcess`.
+    Live {
+        state: InstanceState,
+        port: u16,
+        dashboard_enabled: bool,
+    },
+    /// Shutdown in progress. Values captured from Live at transition time.
+    Stopping {
+        port: u16,
+        dashboard_enabled: bool,
+    },
 }
 
 impl InstanceProcess {
@@ -90,20 +122,10 @@ impl InstanceProcess {
             executable_path,
             port,
             dashboard_enabled,
-            state: InstanceState::Starting,
-            pid_exited: false,
-            next_check_at: None,
-            failure_count: 0,
+            next_health_check_at: None,
+            health_failure_count: 0,
+            alive_failure_count: 0,
+            next_alive_check_at: None,
         }
-    }
-
-    pub(crate) fn calculate_backoff(&self) -> Duration {
-        let secs = 1u64 << self.failure_count.min(5); // 1, 2, 4, 8, 16, 32
-        Duration::from_secs(secs).min(MAX_BACKOFF)
-    }
-
-    pub(crate) fn clear_health_failure_state(&mut self) {
-        self.next_check_at = None;
-        self.failure_count = 0;
     }
 }

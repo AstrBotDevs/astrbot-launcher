@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use tauri::Emitter as _;
 use tauri::Manager as _;
 #[cfg(target_os = "linux")]
@@ -7,14 +5,10 @@ use webkit2gtk::{HardwareAccelerationPolicy, SettingsExt as _, WebViewExt as _};
 
 use crate::commands::{self, AppState};
 use crate::config::{load_config, load_manifest, with_manifest_mut};
-use crate::instance::{self, ProcessManager};
 use crate::utils::log_bus as log_channel;
 use crate::{tray, updater};
 
-pub fn on_setup(
-    app: &tauri::App,
-    pm_for_monitor: Arc<ProcessManager>,
-) -> std::result::Result<(), Box<dyn std::error::Error>> {
+pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     if let Some(main_webview) = app.get_webview_window("main") {
         let _ = main_webview.with_webview(|webview| {
@@ -29,7 +23,9 @@ pub fn on_setup(
         let _ = main_window.set_decorations(false);
     }
 
-    pm_for_monitor.start_runtime_monitor();
+    let state: tauri::State<'_, AppState> = app.state();
+    state.process_manager.start_monitor();
+
     updater::spawn_check(app.handle().clone());
     spawn_event_forwarder(app);
     spawn_log_forwarder(app);
@@ -42,17 +38,28 @@ pub fn on_setup(
 fn spawn_event_forwarder(app: &tauri::App) {
     let app_handle = app.handle().clone();
     let state: tauri::State<'_, AppState> = app.state();
-    let pm: Arc<ProcessManager> = Arc::clone(&state.process_manager);
+    let pm = state.process_manager.clone();
     let mut rx = pm.subscribe_runtime_events();
 
     tauri::async_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(_event) => {
-                    if let Ok(snapshot) =
-                        commands::build_app_snapshot_with(&pm, load_config, load_manifest).await
+                    let pm_clone = pm.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        commands::build_app_snapshot_with(&pm_clone, load_config, load_manifest)
+                    })
+                    .await
                     {
-                        let _ = app_handle.emit("app-snapshot", &snapshot);
+                        Ok(Ok(snapshot)) => {
+                            let _ = app_handle.emit("app-snapshot", &snapshot);
+                        }
+                        Ok(Err(e)) => {
+                            log::warn!("Failed to build app snapshot for event: {}", e);
+                        }
+                        Err(e) => {
+                            log::warn!("Snapshot task panicked: {}", e);
+                        }
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
@@ -86,14 +93,13 @@ fn restore_instances(app: &tauri::App) {
         if cfg.persist_instance_state && !manifest.tracked_instances_snapshot.is_empty() {
             let ids = manifest.tracked_instances_snapshot.clone();
             let restore_handle = app.handle().clone();
-            let restore_state: tauri::State<'_, AppState> = app.state();
-            let restore_pm = Arc::clone(&restore_state.process_manager);
+            let state: tauri::State<'_, AppState> = app.state();
+            let pm = state.process_manager.clone();
+
             tauri::async_runtime::spawn(async move {
                 for id in &ids {
                     log::info!("Restoring instance: {}", id);
-                    if let Err(e) =
-                        instance::start_instance(id, &restore_handle, Arc::clone(&restore_pm)).await
-                    {
+                    if let Err(e) = pm.start_instance(id, restore_handle.clone()).await {
                         log::error!("Failed to restore instance {}: {:?}", id, e);
                     }
                 }
