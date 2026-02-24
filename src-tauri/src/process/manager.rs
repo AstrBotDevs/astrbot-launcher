@@ -49,9 +49,11 @@ pub(super) struct ProcessState {
 
 impl ProcessState {
     /// Reject if the application is shutting down.
-    fn check_active(&self) -> Result<()> {
+    fn check_active(&self, id: &str) -> Result<()> {
         if self.shutting_down {
-            return Err(AppError::process("Application shutting down"));
+            return Err(AppError::process(format!(
+                "Cannot operate on instance {id}: application is shutting down"
+            )));
         }
         Ok(())
     }
@@ -60,9 +62,9 @@ impl ProcessState {
     fn ensure_vacant(&self, id: &str) -> Result<()> {
         match self.slots.get(id) {
             None => Ok(()),
-            Some(entry) if entry.guarded => {
-                Err(AppError::process("Another operation is in progress"))
-            }
+            Some(entry) if entry.guarded => Err(AppError::process(format!(
+                "Instance {id}: another operation is in progress"
+            ))),
             Some(_) => Err(AppError::instance_running()),
         }
     }
@@ -71,27 +73,35 @@ impl ProcessState {
     ///
     /// Returns an appropriate error for every non-`Live` state.
     fn prepare_stop(&mut self, id: &str) -> Result<(u32, PathBuf)> {
-        if self.slots.get(id).map_or(false, |e| e.guarded) {
-            return Err(AppError::process("Another operation is in progress"));
+        let entry = match self.slots.get_mut(id) {
+            None => return Err(AppError::instance_not_running()),
+            Some(e) => e,
+        };
+
+        if entry.guarded {
+            return Err(AppError::process(format!(
+                "Instance {id}: another operation is in progress"
+            )));
         }
-        match self.slots.remove(id) {
-            Some(InstanceEntry { slot: Some(Slot::Live(p)), guarded }) => {
+
+        match entry.slot.take() {
+            Some(Slot::Live(p)) => {
                 let pid = p.pid;
                 let exe = p.executable_path.clone();
-                self.slots.insert(
-                    id.to_string(),
-                    InstanceEntry { slot: Some(Slot::Stopping(p)), guarded },
-                );
+                entry.slot = Some(Slot::Stopping(p));
                 Ok((pid, exe))
             }
-            Some(entry) => {
-                let err = match &entry.slot {
-                    Some(Slot::Stopping(_)) => AppError::process("Instance is already stopping"),
-                    Some(Slot::Starting) => AppError::process("Instance is still starting"),
-                    _ => AppError::instance_not_running(),
-                };
-                self.slots.insert(id.to_string(), entry);
-                Err(err)
+            Some(slot @ Slot::Stopping(_)) => {
+                entry.slot = Some(slot);
+                Err(AppError::process(format!(
+                    "Instance {id} is already stopping"
+                )))
+            }
+            Some(slot @ Slot::Starting) => {
+                entry.slot = Some(slot);
+                Err(AppError::process(format!(
+                    "Instance {id} is still starting"
+                )))
             }
             None => Err(AppError::instance_not_running()),
         }
@@ -250,7 +260,7 @@ impl ProcessManager {
     /// The guard is released when dropped.
     pub fn acquire_guard(&self, id: &str) -> Result<InstanceGuard> {
         let mut state = lock_mutex_recover(&self.state, "ProcessState");
-        state.check_active()?;
+        state.check_active(id)?;
         state.ensure_vacant(id)?;
         state.slots.insert(
             id.to_string(),
@@ -269,7 +279,7 @@ impl ProcessManager {
         // Phase 1: lock → check → set Starting → unlock
         {
             let mut state = lock_mutex_recover(&self.state, "ProcessState");
-            state.check_active()?;
+            state.check_active(id)?;
             state.ensure_vacant(id)?;
             state.slots.insert(
                 id.to_string(),
@@ -286,7 +296,7 @@ impl ProcessManager {
         // Phase 1: lock → transition to Stopping → unlock
         let (pid, exe) = {
             let mut state = lock_mutex_recover(&self.state, "ProcessState");
-            state.check_active()?;
+            state.check_active(id)?;
             state.prepare_stop(id)?
         };
         self.emit(id, InstanceState::Stopping);
@@ -306,7 +316,7 @@ impl ProcessManager {
         // Phase 1: lock → check → prepare stop if running, or insert Starting directly
         let stop_info = {
             let mut state = lock_mutex_recover(&self.state, "ProcessState");
-            state.check_active()?;
+            state.check_active(id)?;
             match state.prepare_stop(id) {
                 Ok((pid, exe)) => Some((pid, exe)),
                 Err(e) if e.kind() == ErrorKind::InstanceNotRunning => {
@@ -336,12 +346,13 @@ impl ProcessManager {
                     state.slots.remove(id);
                     drop(state);
                     self.emit(id, InstanceState::Stopped);
-                    return Err(AppError::process("Application shutting down"));
+                    return Err(AppError::process(format!(
+                        "Cannot restart instance {id}: application is shutting down"
+                    )));
                 }
-                state.slots.insert(
-                    id.to_string(),
-                    InstanceEntry { slot: Some(Slot::Starting), guarded: false },
-                );
+                if let Some(entry) = state.slots.get_mut(id) {
+                    entry.slot = Some(Slot::Starting);
+                }
             }
         }
 
@@ -379,24 +390,22 @@ impl ProcessManager {
                     }
                 });
             }
-            return Err(AppError::process("Application shutting down"));
+            return Err(AppError::process(format!(
+                "Cannot start instance {id}: application is shutting down"
+            )));
         }
 
         match result {
             Ok(launch) => {
                 let port = launch.port;
-                state.slots.insert(
-                    id.to_string(),
-                    InstanceEntry {
-                        slot: Some(Slot::Live(InstanceProcess::new(
-                            launch.pid,
-                            launch.executable_path,
-                            launch.port,
-                            launch.dashboard_enabled,
-                        ))),
-                        guarded: false,
-                    },
-                );
+                if let Some(entry) = state.slots.get_mut(id) {
+                    entry.slot = Some(Slot::Live(InstanceProcess::new(
+                        launch.pid,
+                        launch.executable_path,
+                        launch.port,
+                        launch.dashboard_enabled,
+                    )));
+                }
                 drop(state);
                 self.emit(id, InstanceState::Running);
                 Ok(port)

@@ -273,7 +273,7 @@ async fn evaluate_health(
         (0, None)
     } else {
         let new_count = entry.health_failure_count + 1;
-        let backoff = calculate_health_backoff(new_count);
+        let backoff = super::calculate_backoff(new_count);
         let next_at = Some(now + backoff);
 
         if new_count >= UNHEALTHY_THRESHOLD && entry.health_failure_count < UNHEALTHY_THRESHOLD {
@@ -286,22 +286,6 @@ async fn evaluate_health(
 
         (new_count, next_at)
     }
-}
-
-/// Capped exponential backoff: `2^count` seconds, clamped to
-/// [`MAX_BACKOFF`](super::MAX_BACKOFF).
-fn calculate_backoff(failure_count: u32) -> std::time::Duration {
-    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
-    std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
-}
-
-fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
-    calculate_backoff(failure_count)
-}
-
-#[cfg(target_os = "windows")]
-fn calculate_liveness_backoff(failure_count: u32) -> std::time::Duration {
-    calculate_backoff(failure_count)
 }
 
 // -- Liveness evaluation ------------------------------------------------------
@@ -409,7 +393,7 @@ fn probe_liveness(
         );
         None
     } else {
-        let backoff = calculate_liveness_backoff(new_count);
+        let backoff = super::calculate_backoff(new_count);
         log::debug!(
             "Instance {} liveness probe failed (count: {}), retry in {}s",
             entry.id,

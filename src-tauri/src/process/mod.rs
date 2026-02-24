@@ -25,6 +25,15 @@ pub use manager::ProcessManager;
 /// Maximum backoff interval between health checks.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+/// Capped exponential backoff: `2^count` seconds, clamped to [`MAX_BACKOFF`].
+///
+/// Shared by health checks and liveness probes so the formula stays in one
+/// place.  Callers can wrap this if they ever need independent tuning.
+pub(super) fn calculate_backoff(failure_count: u32) -> Duration {
+    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
+    Duration::from_secs(secs).min(MAX_BACKOFF)
+}
+
 /// Runtime monitor tick interval.
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
 
