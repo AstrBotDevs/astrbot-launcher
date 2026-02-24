@@ -58,6 +58,44 @@ struct AliveUpdate {
     new_pid: Option<u32>,
 }
 
+impl AliveUpdate {
+    /// Preserve the snapshot's health and liveness state as-is.
+    #[cfg(target_os = "windows")]
+    fn from_entry_running(entry: &LiveSnapshot) -> Self {
+        Self {
+            computed_state: InstanceState::Running,
+            health_failure_count: entry.health_failure_count,
+            next_health_check_at: entry.next_health_check_at,
+            alive_failure_count: entry.alive_failure_count,
+            next_alive_check_at: entry.next_alive_check_at,
+            new_pid: None,
+        }
+    }
+
+    /// Preserve health state but reset alive tracking (liveness confirmed).
+    #[cfg(target_os = "windows")]
+    fn from_entry_running_reset_alive(entry: &LiveSnapshot, new_pid: Option<u32>) -> Self {
+        Self {
+            computed_state: InstanceState::Running,
+            health_failure_count: entry.health_failure_count,
+            next_health_check_at: entry.next_health_check_at,
+            alive_failure_count: 0,
+            next_alive_check_at: None,
+            new_pid,
+        }
+    }
+
+    /// Preserve health state (non-Windows: no alive tracking fields).
+    #[cfg(not(target_os = "windows"))]
+    fn from_entry_running(entry: &LiveSnapshot) -> Self {
+        Self {
+            computed_state: InstanceState::Running,
+            health_failure_count: entry.health_failure_count,
+            next_health_check_at: entry.next_health_check_at,
+        }
+    }
+}
+
 #[cfg(target_os = "windows")]
 enum LivenessProbeResult {
     Alive,
@@ -297,6 +335,7 @@ async fn evaluate_health(
     }
 }
 
+/// Capped exponential backoff: `2^count` seconds, clamped to [`MAX_BACKOFF`](super::MAX_BACKOFF).
 fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
     let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
     std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
@@ -310,40 +349,24 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
     if entry.dashboard_enabled {
         if let Some(next_at) = entry.next_alive_check_at {
             if now < next_at {
-                return Some(AliveUpdate {
-                    computed_state: InstanceState::Running,
-                    health_failure_count: entry.health_failure_count,
-                    next_health_check_at: entry.next_health_check_at,
-                    alive_failure_count: entry.alive_failure_count,
-                    next_alive_check_at: entry.next_alive_check_at,
-                    new_pid: None,
-                });
+                return Some(AliveUpdate::from_entry_running(entry));
             }
         }
     }
 
     match probe_liveness(entry) {
-        LivenessProbeResult::Alive => Some(AliveUpdate {
-            computed_state: InstanceState::Running,
-            health_failure_count: entry.health_failure_count,
-            next_health_check_at: entry.next_health_check_at,
-            alive_failure_count: 0,
-            next_alive_check_at: None,
-            new_pid: None,
-        }),
-        LivenessProbeResult::AliveWithNewPid(new_pid) => Some(AliveUpdate {
-            computed_state: InstanceState::Running,
-            health_failure_count: entry.health_failure_count,
-            next_health_check_at: entry.next_health_check_at,
-            alive_failure_count: 0,
-            next_alive_check_at: None,
-            new_pid: Some(new_pid),
-        }),
+        LivenessProbeResult::Alive => {
+            Some(AliveUpdate::from_entry_running_reset_alive(entry, None))
+        }
+        LivenessProbeResult::AliveWithNewPid(new_pid) => {
+            Some(AliveUpdate::from_entry_running_reset_alive(entry, Some(new_pid)))
+        }
         LivenessProbeResult::Dead => {
             if !entry.dashboard_enabled {
-                return None;
+                None
+            } else {
+                handle_liveness_failure(entry, now)
             }
-            handle_liveness_failure(entry, now)
         }
     }
 }
@@ -351,8 +374,7 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
 #[cfg(target_os = "windows")]
 fn handle_liveness_failure(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> {
     let new_count = entry.alive_failure_count + 1;
-    let backoff_secs = 1u64 << new_count.min(5);
-    let backoff = std::time::Duration::from_secs(backoff_secs).min(super::MAX_BACKOFF);
+    let backoff = calculate_health_backoff(new_count);
 
     if new_count >= ALIVE_EXIT_THRESHOLD {
         log::warn!(
@@ -366,15 +388,12 @@ fn handle_liveness_failure(entry: &LiveSnapshot, now: Instant) -> Option<AliveUp
             "Instance {} liveness probe failed (count: {}), retry in {}s",
             entry.id,
             new_count,
-            backoff_secs
+            backoff.as_secs()
         );
         Some(AliveUpdate {
-            computed_state: InstanceState::Running,
-            health_failure_count: entry.health_failure_count,
-            next_health_check_at: entry.next_health_check_at,
             alive_failure_count: new_count,
             next_alive_check_at: Some(now + backoff),
-            new_pid: None,
+            ..AliveUpdate::from_entry_running_reset_alive(entry, None)
         })
     }
 }
@@ -431,9 +450,6 @@ fn probe_liveness(entry: &LiveSnapshot) -> LivenessProbeResult {
 
 #[cfg(not(target_os = "windows"))]
 fn evaluate_liveness(entry: &LiveSnapshot, _now: Instant) -> Option<AliveUpdate> {
-    is_expected_process_alive(entry.pid, &entry.executable_path).then_some(AliveUpdate {
-        computed_state: InstanceState::Running,
-        health_failure_count: entry.health_failure_count,
-        next_health_check_at: entry.next_health_check_at,
-    })
+    is_expected_process_alive(entry.pid, &entry.executable_path)
+        .then(|| AliveUpdate::from_entry_running(entry))
 }
