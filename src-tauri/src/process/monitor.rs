@@ -36,21 +36,23 @@ struct LiveSnapshot {
     next_alive_check_at: Option<Instant>,
 }
 
-/// Fields to write back for an alive instance (one per instance, no duplicates).
+/// Outcome of evaluating a single instance during monitoring.
 ///
-/// Evaluation results use `Option<AliveUpdate>`: `None` means the process is
-/// dead (slot should be removed), `Some` means it is alive (update its fields).
-///
-/// Carries only counters, timestamps, and optional PID updates — the derived
-/// `InstanceState` is computed from `derive_health_state` when applying outcomes,
-/// keeping a single source of truth.
-struct AliveUpdate {
-    health_failure_count: u32,
-    next_health_check_at: Option<Instant>,
-    /// Always 0 / `None` on non-Windows (no retry mechanism).
-    alive_failure_count: u32,
-    next_alive_check_at: Option<Instant>,
-    new_pid: Option<u32>,
+/// Collapses the previous `Option<AliveUpdate>` encoding: `Dead` replaces
+/// `None` and `Alive` replaces `Some(AliveUpdate)`.
+enum MonitorOutcome {
+    /// The process is dead — its slot should be removed.
+    Dead { id: String },
+    /// The process is alive — update its fields.
+    Alive {
+        id: String,
+        health_failure_count: u32,
+        next_health_check_at: Option<Instant>,
+        /// Always 0 / `None` on non-Windows (no retry mechanism).
+        alive_failure_count: u32,
+        next_alive_check_at: Option<Instant>,
+        new_pid: Option<u32>,
+    },
 }
 
 /// Result of a single platform-specific liveness probe.
@@ -133,36 +135,50 @@ pub(super) async fn poll_instances(
 async fn evaluate_instances(
     entries: &[LiveSnapshot],
     http_client: &Client,
-) -> Vec<(String, Option<AliveUpdate>)> {
+) -> Vec<MonitorOutcome> {
     let now = Instant::now();
-    let mut outcomes: Vec<(String, Option<AliveUpdate>)> = Vec::new();
-    let mut needs_health_check: Vec<(&LiveSnapshot, AliveUpdate)> = Vec::new();
+    let mut outcomes: Vec<MonitorOutcome> = Vec::new();
+    let mut needs_health_check: Vec<(&LiveSnapshot, MonitorOutcome)> = Vec::new();
 
     for entry in entries {
-        let Some(update) = evaluate_liveness(entry, now) else {
-            outcomes.push((entry.id.clone(), None));
+        let Some(outcome) = evaluate_liveness(entry, now) else {
+            outcomes.push(MonitorOutcome::Dead { id: entry.id.clone() });
             continue;
         };
 
         if !entry.dashboard_enabled {
             // Alive, no dashboard → use liveness defaults directly.
-            outcomes.push((entry.id.clone(), Some(update)));
+            outcomes.push(outcome);
             continue;
         }
 
-        // Dashboard enabled: health check will overwrite health fields in update.
-        needs_health_check.push((entry, update));
+        // Dashboard enabled: health check will overwrite health fields in outcome.
+        needs_health_check.push((entry, outcome));
     }
 
     // Concurrent health checks (inlined — no separate helper function)
     let health_futures: Vec<_> = needs_health_check
         .into_iter()
-        .map(|(entry, mut update)| async move {
+        .map(|(entry, outcome)| async move {
             let (health_failure_count, next_health_check_at) =
                 evaluate_health(entry, now, http_client).await;
-            update.health_failure_count = health_failure_count;
-            update.next_health_check_at = next_health_check_at;
-            (entry.id.clone(), Some(update))
+            match outcome {
+                MonitorOutcome::Alive {
+                    id,
+                    alive_failure_count,
+                    next_alive_check_at,
+                    new_pid,
+                    ..
+                } => MonitorOutcome::Alive {
+                    id,
+                    health_failure_count,
+                    next_health_check_at,
+                    alive_failure_count,
+                    next_alive_check_at,
+                    new_pid,
+                },
+                dead @ MonitorOutcome::Dead { .. } => dead,
+            }
         })
         .collect();
     let health_results = futures_util::future::join_all(health_futures).await;
@@ -174,13 +190,13 @@ async fn evaluate_instances(
 /// Apply monitor outcomes to the live process state. Returns events to emit.
 fn apply_outcomes(
     state: &mut ProcessState,
-    outcomes: &[(String, Option<AliveUpdate>)],
+    outcomes: &[MonitorOutcome],
 ) -> Vec<(String, InstanceState)> {
     let mut events = Vec::new();
 
-    for (id, update) in outcomes {
-        match update {
-            None => {
+    for outcome in outcomes {
+        match outcome {
+            MonitorOutcome::Dead { id } => {
                 // Only remove slots still in Live state — another lifecycle
                 // method may have transitioned the slot in the meantime.
                 if matches!(state.slots.get(id), Some(Slot::Live(_))) {
@@ -189,15 +205,22 @@ fn apply_outcomes(
                     events.push((id.clone(), InstanceState::Stopped));
                 }
             }
-            Some(update) => {
+            MonitorOutcome::Alive {
+                id,
+                health_failure_count,
+                next_health_check_at,
+                alive_failure_count,
+                next_alive_check_at,
+                new_pid,
+            } => {
                 if let Some(Slot::Live(p)) = state.slots.get_mut(id) {
                     let old_state = derive_health_state(p);
 
-                    p.health_failure_count = update.health_failure_count;
-                    p.next_health_check_at = update.next_health_check_at;
-                    p.alive_failure_count = update.alive_failure_count;
-                    p.next_alive_check_at = update.next_alive_check_at;
-                    if let Some(new_pid) = update.new_pid {
+                    p.health_failure_count = *health_failure_count;
+                    p.next_health_check_at = *next_health_check_at;
+                    p.alive_failure_count = *alive_failure_count;
+                    p.next_alive_check_at = *next_alive_check_at;
+                    if let Some(new_pid) = new_pid {
                         log::info!(
                             "Instance {} PID updated: {} -> {} (port {})",
                             id,
@@ -205,7 +228,7 @@ fn apply_outcomes(
                             new_pid,
                             p.port
                         );
-                        p.pid = new_pid;
+                        p.pid = *new_pid;
                     }
 
                     // Single source of truth: derive state from updated counters.
@@ -278,7 +301,7 @@ async fn evaluate_health(
 /// Capped exponential backoff for health checks: `2^count` seconds, clamped to
 /// [`MAX_BACKOFF`](super::MAX_BACKOFF).
 fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
-    let secs = 1u64 << failure_count.min(5); // 2, 4, 8, 16, 32
+    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
     std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
 }
 
@@ -288,24 +311,25 @@ fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
 /// be tuned independently.
 #[cfg(target_os = "windows")]
 fn calculate_liveness_backoff(failure_count: u32) -> std::time::Duration {
-    let secs = 1u64 << failure_count.min(5); // 2, 4, 8, 16, 32
+    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
     std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
 }
 
 // -- Liveness evaluation ------------------------------------------------------
 
 /// Evaluate liveness for a single instance. Returns `None` if the process is
-/// dead (slot should be removed), `Some` if alive (with updated counters).
+/// dead (slot should be removed), `Some(MonitorOutcome::Alive { .. })` if alive.
 ///
 /// Platform-specific probing is delegated to [`probe_liveness`]. The backoff
 /// and retry logic for Windows liveness failures is handled there as well.
-fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> {
+fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<MonitorOutcome> {
     // Backoff: not yet time to probe — preserve previous counters.
     // On non-Windows this is always a no-op (next_alive_check_at is always None).
     if entry.dashboard_enabled {
         if let Some(next_at) = entry.next_alive_check_at {
             if now < next_at {
-                return Some(AliveUpdate {
+                return Some(MonitorOutcome::Alive {
+                    id: entry.id.clone(),
                     health_failure_count: entry.health_failure_count,
                     next_health_check_at: entry.next_health_check_at,
                     alive_failure_count: entry.alive_failure_count,
@@ -323,7 +347,8 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
                 // Without a dashboard there is no retry UI; treat as dead.
                 None
             } else {
-                Some(AliveUpdate {
+                Some(MonitorOutcome::Alive {
+                    id: entry.id.clone(),
                     health_failure_count: entry.health_failure_count,
                     next_health_check_at: entry.next_health_check_at,
                     alive_failure_count: failures,
@@ -332,14 +357,16 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
                 })
             }
         }
-        LivenessEval::AliveSamePid => Some(AliveUpdate {
+        LivenessEval::AliveSamePid => Some(MonitorOutcome::Alive {
+            id: entry.id.clone(),
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,
             next_alive_check_at: None,
             new_pid: None,
         }),
-        LivenessEval::AliveNewPid(new_pid) => Some(AliveUpdate {
+        LivenessEval::AliveNewPid(new_pid) => Some(MonitorOutcome::Alive {
+            id: entry.id.clone(),
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,

@@ -45,10 +45,21 @@ fn spawn_event_forwarder(app: &tauri::App) {
         loop {
             match rx.recv().await {
                 Ok(_event) => {
-                    if let Ok(snapshot) =
-                        commands::build_app_snapshot_with(&pm, load_config, load_manifest)
+                    let pm_clone = pm.clone();
+                    match tokio::task::spawn_blocking(move || {
+                        commands::build_app_snapshot_with(&pm_clone, load_config, load_manifest)
+                    })
+                    .await
                     {
-                        let _ = app_handle.emit("app-snapshot", &snapshot);
+                        Ok(Ok(snapshot)) => {
+                            let _ = app_handle.emit("app-snapshot", &snapshot);
+                        }
+                        Ok(Err(e)) => {
+                            log::warn!("Failed to build app snapshot for event: {}", e);
+                        }
+                        Err(e) => {
+                            log::warn!("Snapshot task panicked: {}", e);
+                        }
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {

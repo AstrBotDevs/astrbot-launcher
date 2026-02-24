@@ -103,12 +103,20 @@ pub(crate) fn build_app_snapshot_with(
 
 #[tauri::command]
 pub async fn get_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, load_config, load_manifest)
+    let pm = state.process_manager.clone();
+    tokio::task::spawn_blocking(move || build_app_snapshot_with(&pm, load_config, load_manifest))
+        .await
+        .map_err(|e| AppError::process(format!("Snapshot task panicked: {}", e)))?
 }
 
 #[tauri::command]
 pub async fn rebuild_app_snapshot(state: State<'_, AppState>) -> Result<AppSnapshot> {
-    build_app_snapshot_with(&state.process_manager, reload_config, reload_manifest)
+    let pm = state.process_manager.clone();
+    tokio::task::spawn_blocking(move || {
+        build_app_snapshot_with(&pm, reload_config, reload_manifest)
+    })
+    .await
+    .map_err(|e| AppError::process(format!("Snapshot task panicked: {}", e)))?
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
