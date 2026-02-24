@@ -202,18 +202,10 @@ pub(super) fn derive_health_state(p: &InstanceProcess) -> InstanceState {
 }
 
 /// Manages running instance processes via a shared mutex-guarded state.
+#[derive(Clone)]
 pub struct ProcessManager {
     state: Arc<Mutex<ProcessState>>,
     runtime_events: broadcast::Sender<RuntimeEvent>,
-}
-
-impl Clone for ProcessManager {
-    fn clone(&self) -> Self {
-        Self {
-            state: Arc::clone(&self.state),
-            runtime_events: self.runtime_events.clone(),
-        }
-    }
 }
 
 impl ProcessManager {
