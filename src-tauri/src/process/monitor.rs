@@ -53,9 +53,17 @@ struct AliveUpdate {
     new_pid: Option<u32>,
 }
 
-/// Platform-abstracted result of a single liveness probe.
-enum LivenessOutcome {
-    Dead,
+/// Result of a single platform-specific liveness probe.
+///
+/// Distinguishes terminal death from retriable failure so that
+/// `evaluate_liveness` can act on explicit semantics rather than
+/// interpreting sentinel values from a tuple.
+enum LivenessEval {
+    /// Definitively dead — the slot should be removed.
+    DeadTerminal,
+    /// Dead but below the retry threshold (Windows only). The slot stays alive
+    /// with updated failure counters and a backoff timestamp.
+    DeadRetry { failures: u32, next_at: Instant },
     AliveSamePid,
     AliveNewPid(u32),
 }
@@ -149,15 +157,12 @@ async fn evaluate_instances(
     // Concurrent health checks (inlined — no separate helper function)
     let health_futures: Vec<_> = needs_health_check
         .into_iter()
-        .map(|(entry, mut update)| {
-            let http_client = http_client.clone();
-            async move {
-                let (health_failure_count, next_health_check_at) =
-                    evaluate_health(entry, now, &http_client).await;
-                update.health_failure_count = health_failure_count;
-                update.next_health_check_at = next_health_check_at;
-                (entry.id.clone(), Some(update))
-            }
+        .map(|(entry, mut update)| async move {
+            let (health_failure_count, next_health_check_at) =
+                evaluate_health(entry, now, http_client).await;
+            update.health_failure_count = health_failure_count;
+            update.next_health_check_at = next_health_check_at;
+            (entry.id.clone(), Some(update))
         })
         .collect();
     let health_results = futures_util::future::join_all(health_futures).await;
@@ -270,9 +275,20 @@ async fn evaluate_health(
     }
 }
 
-/// Capped exponential backoff: `2^count` seconds, clamped to [`MAX_BACKOFF`](super::MAX_BACKOFF).
+/// Capped exponential backoff for health checks: `2^count` seconds, clamped to
+/// [`MAX_BACKOFF`](super::MAX_BACKOFF).
 fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
-    let secs = 1u64 << failure_count.min(5); // 1, 2, 4, 8, 16, 32
+    let secs = 1u64 << failure_count.min(5); // 2, 4, 8, 16, 32
+    std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
+}
+
+/// Capped exponential backoff for liveness probes (Windows only).
+///
+/// Separate from [`calculate_health_backoff`] so the two retry mechanisms can
+/// be tuned independently.
+#[cfg(target_os = "windows")]
+fn calculate_liveness_backoff(failure_count: u32) -> std::time::Duration {
+    let secs = 1u64 << failure_count.min(5); // 2, 4, 8, 16, 32
     std::time::Duration::from_secs(secs).min(super::MAX_BACKOFF)
 }
 
@@ -300,38 +316,30 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
         }
     }
 
-    let (outcome, alive_failure_count, next_alive_check_at) = probe_liveness(entry, now);
-
-    match outcome {
-        LivenessOutcome::Dead => {
+    match probe_liveness(entry, now) {
+        LivenessEval::DeadTerminal => None,
+        LivenessEval::DeadRetry { failures, next_at } => {
             if !entry.dashboard_enabled {
+                // Without a dashboard there is no retry UI; treat as dead.
                 None
             } else {
-                // Windows retry: keep the slot alive until the threshold is reached.
-                // probe_liveness returns None-equivalent via Dead when threshold exceeded,
-                // but here we still have counters — check if we should remove.
-                if alive_failure_count == 0 && next_alive_check_at.is_none() {
-                    // Threshold exceeded in probe_liveness — treat as definitively dead.
-                    None
-                } else {
-                    Some(AliveUpdate {
-                        health_failure_count: entry.health_failure_count,
-                        next_health_check_at: entry.next_health_check_at,
-                        alive_failure_count,
-                        next_alive_check_at,
-                        new_pid: None,
-                    })
-                }
+                Some(AliveUpdate {
+                    health_failure_count: entry.health_failure_count,
+                    next_health_check_at: entry.next_health_check_at,
+                    alive_failure_count: failures,
+                    next_alive_check_at: Some(next_at),
+                    new_pid: None,
+                })
             }
         }
-        LivenessOutcome::AliveSamePid => Some(AliveUpdate {
+        LivenessEval::AliveSamePid => Some(AliveUpdate {
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,
             next_alive_check_at: None,
             new_pid: None,
         }),
-        LivenessOutcome::AliveNewPid(new_pid) => Some(AliveUpdate {
+        LivenessEval::AliveNewPid(new_pid) => Some(AliveUpdate {
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,
@@ -344,12 +352,9 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
 // -- Platform-specific liveness probing ---------------------------------------
 
 #[cfg(target_os = "windows")]
-fn probe_liveness(
-    entry: &LiveSnapshot,
-    now: Instant,
-) -> (LivenessOutcome, u32, Option<Instant>) {
+fn probe_liveness(entry: &LiveSnapshot, now: Instant) -> LivenessEval {
     if is_expected_process_alive(entry.pid, &entry.executable_path) {
-        return (LivenessOutcome::AliveSamePid, 0, None);
+        return LivenessEval::AliveSamePid;
     }
 
     // PID check failed — try port-based PID discovery.
@@ -372,7 +377,7 @@ fn probe_liveness(
             }
             // Fall through to failure handling below.
         } else if is_expected_process_alive(new_pid, &entry.executable_path) {
-            return (LivenessOutcome::AliveNewPid(new_pid), 0, None);
+            return LivenessEval::AliveNewPid(new_pid);
         } else if is_process_alive(new_pid) {
             log::warn!(
                 "Instance {} rejected PID update {} -> {}: executable path mismatch",
@@ -399,28 +404,27 @@ fn probe_liveness(
             entry.id,
             new_count
         );
-        // Signal definitive death: zeroed counters tell the caller to remove the slot.
-        (LivenessOutcome::Dead, 0, None)
+        LivenessEval::DeadTerminal
     } else {
-        let backoff = calculate_health_backoff(new_count);
+        let backoff = calculate_liveness_backoff(new_count);
         log::debug!(
             "Instance {} liveness probe failed (count: {}), retry in {}s",
             entry.id,
             new_count,
             backoff.as_secs()
         );
-        (LivenessOutcome::Dead, new_count, Some(now + backoff))
+        LivenessEval::DeadRetry {
+            failures: new_count,
+            next_at: now + backoff,
+        }
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn probe_liveness(
-    entry: &LiveSnapshot,
-    _now: Instant,
-) -> (LivenessOutcome, u32, Option<Instant>) {
+fn probe_liveness(entry: &LiveSnapshot, _now: Instant) -> LivenessEval {
     if is_expected_process_alive(entry.pid, &entry.executable_path) {
-        (LivenessOutcome::AliveSamePid, 0, None)
+        LivenessEval::AliveSamePid
     } else {
-        (LivenessOutcome::Dead, 0, None)
+        LivenessEval::DeadTerminal
     }
 }
