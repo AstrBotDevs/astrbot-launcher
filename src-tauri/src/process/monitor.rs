@@ -11,16 +11,17 @@ use reqwest::Client;
 use tokio::sync::broadcast;
 
 use super::manager::{derive_health_state, ProcessState, Slot};
-#[cfg(target_os = "windows")]
-use super::control::is_process_alive;
 use super::control::is_expected_process_alive;
 use super::health::check_health;
+use super::{InstanceState, RuntimeEvent, UNHEALTHY_THRESHOLD};
+use crate::utils::sync::lock_mutex_recover;
+
+#[cfg(target_os = "windows")]
+use super::control::is_process_alive;
 #[cfg(target_os = "windows")]
 use super::win_api::get_pid_on_port;
 #[cfg(target_os = "windows")]
 use super::ALIVE_EXIT_THRESHOLD;
-use super::{InstanceState, RuntimeEvent, UNHEALTHY_THRESHOLD};
-use crate::utils::sync::lock_mutex_recover;
 
 /// Snapshot of a single live instance for evaluation.
 struct LiveSnapshot {
@@ -31,9 +32,7 @@ struct LiveSnapshot {
     dashboard_enabled: bool,
     next_health_check_at: Option<Instant>,
     health_failure_count: u32,
-    #[cfg(target_os = "windows")]
     alive_failure_count: u32,
-    #[cfg(target_os = "windows")]
     next_alive_check_at: Option<Instant>,
 }
 
@@ -48,19 +47,17 @@ struct LiveSnapshot {
 struct AliveUpdate {
     health_failure_count: u32,
     next_health_check_at: Option<Instant>,
-    #[cfg(target_os = "windows")]
+    /// Always 0 / `None` on non-Windows (no retry mechanism).
     alive_failure_count: u32,
-    #[cfg(target_os = "windows")]
     next_alive_check_at: Option<Instant>,
-    #[cfg(target_os = "windows")]
     new_pid: Option<u32>,
 }
 
-#[cfg(target_os = "windows")]
-enum LivenessProbeResult {
-    Alive,
-    AliveWithNewPid(u32),
+/// Platform-abstracted result of a single liveness probe.
+enum LivenessOutcome {
     Dead,
+    AliveSamePid,
+    AliveNewPid(u32),
 }
 
 /// Entry point called by the monitor task on each tick.
@@ -91,9 +88,7 @@ pub(super) async fn poll_instances(
                         dashboard_enabled: p.dashboard_enabled,
                         next_health_check_at: p.next_health_check_at,
                         health_failure_count: p.health_failure_count,
-                        #[cfg(target_os = "windows")]
                         alive_failure_count: p.alive_failure_count,
-                        #[cfg(target_os = "windows")]
                         next_alive_check_at: p.next_alive_check_at,
                     })
                 } else {
@@ -195,20 +190,17 @@ fn apply_outcomes(
 
                     p.health_failure_count = update.health_failure_count;
                     p.next_health_check_at = update.next_health_check_at;
-                    #[cfg(target_os = "windows")]
-                    {
-                        p.alive_failure_count = update.alive_failure_count;
-                        p.next_alive_check_at = update.next_alive_check_at;
-                        if let Some(new_pid) = update.new_pid {
-                            log::info!(
-                                "Instance {} PID updated: {} -> {} (port {})",
-                                id,
-                                p.pid,
-                                new_pid,
-                                p.port
-                            );
-                            p.pid = new_pid;
-                        }
+                    p.alive_failure_count = update.alive_failure_count;
+                    p.next_alive_check_at = update.next_alive_check_at;
+                    if let Some(new_pid) = update.new_pid {
+                        log::info!(
+                            "Instance {} PID updated: {} -> {} (port {})",
+                            id,
+                            p.pid,
+                            new_pid,
+                            p.port
+                        );
+                        p.pid = new_pid;
                     }
 
                     // Single source of truth: derive state from updated counters.
@@ -286,9 +278,14 @@ fn calculate_health_backoff(failure_count: u32) -> std::time::Duration {
 
 // -- Liveness evaluation ------------------------------------------------------
 
-#[cfg(target_os = "windows")]
+/// Evaluate liveness for a single instance. Returns `None` if the process is
+/// dead (slot should be removed), `Some` if alive (with updated counters).
+///
+/// Platform-specific probing is delegated to [`probe_liveness`]. The backoff
+/// and retry logic for Windows liveness failures is handled there as well.
 fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> {
-    // Backoff check
+    // Backoff: not yet time to probe — preserve previous counters.
+    // On non-Windows this is always a no-op (next_alive_check_at is always None).
     if entry.dashboard_enabled {
         if let Some(next_at) = entry.next_alive_check_at {
             if now < next_at {
@@ -303,66 +300,59 @@ fn evaluate_liveness(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> 
         }
     }
 
-    match probe_liveness(entry) {
-        LivenessProbeResult::Alive => Some(AliveUpdate {
+    let (outcome, alive_failure_count, next_alive_check_at) = probe_liveness(entry, now);
+
+    match outcome {
+        LivenessOutcome::Dead => {
+            if !entry.dashboard_enabled {
+                None
+            } else {
+                // Windows retry: keep the slot alive until the threshold is reached.
+                // probe_liveness returns None-equivalent via Dead when threshold exceeded,
+                // but here we still have counters — check if we should remove.
+                if alive_failure_count == 0 && next_alive_check_at.is_none() {
+                    // Threshold exceeded in probe_liveness — treat as definitively dead.
+                    None
+                } else {
+                    Some(AliveUpdate {
+                        health_failure_count: entry.health_failure_count,
+                        next_health_check_at: entry.next_health_check_at,
+                        alive_failure_count,
+                        next_alive_check_at,
+                        new_pid: None,
+                    })
+                }
+            }
+        }
+        LivenessOutcome::AliveSamePid => Some(AliveUpdate {
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,
             next_alive_check_at: None,
             new_pid: None,
         }),
-        LivenessProbeResult::AliveWithNewPid(new_pid) => Some(AliveUpdate {
+        LivenessOutcome::AliveNewPid(new_pid) => Some(AliveUpdate {
             health_failure_count: entry.health_failure_count,
             next_health_check_at: entry.next_health_check_at,
             alive_failure_count: 0,
             next_alive_check_at: None,
             new_pid: Some(new_pid),
         }),
-        LivenessProbeResult::Dead => {
-            if !entry.dashboard_enabled {
-                None
-            } else {
-                handle_liveness_failure(entry, now)
-            }
-        }
     }
 }
 
-#[cfg(target_os = "windows")]
-fn handle_liveness_failure(entry: &LiveSnapshot, now: Instant) -> Option<AliveUpdate> {
-    let new_count = entry.alive_failure_count + 1;
-    let backoff = calculate_health_backoff(new_count);
-
-    if new_count >= ALIVE_EXIT_THRESHOLD {
-        log::warn!(
-            "Instance {} liveness probe failed {} times, treating process as exited",
-            entry.id,
-            new_count
-        );
-        None
-    } else {
-        log::debug!(
-            "Instance {} liveness probe failed (count: {}), retry in {}s",
-            entry.id,
-            new_count,
-            backoff.as_secs()
-        );
-        Some(AliveUpdate {
-            health_failure_count: entry.health_failure_count,
-            next_health_check_at: entry.next_health_check_at,
-            alive_failure_count: new_count,
-            next_alive_check_at: Some(now + backoff),
-            new_pid: None,
-        })
-    }
-}
+// -- Platform-specific liveness probing ---------------------------------------
 
 #[cfg(target_os = "windows")]
-fn probe_liveness(entry: &LiveSnapshot) -> LivenessProbeResult {
+fn probe_liveness(
+    entry: &LiveSnapshot,
+    now: Instant,
+) -> (LivenessOutcome, u32, Option<Instant>) {
     if is_expected_process_alive(entry.pid, &entry.executable_path) {
-        return LivenessProbeResult::Alive;
+        return (LivenessOutcome::AliveSamePid, 0, None);
     }
 
+    // PID check failed — try port-based PID discovery.
     if let Some(new_pid) = get_pid_on_port(entry.port) {
         if new_pid == entry.pid {
             if entry.alive_failure_count == 0 {
@@ -380,14 +370,10 @@ fn probe_liveness(entry: &LiveSnapshot) -> LivenessProbeResult {
                     entry.pid
                 );
             }
-            return LivenessProbeResult::Dead;
-        }
-
-        if is_expected_process_alive(new_pid, &entry.executable_path) {
-            return LivenessProbeResult::AliveWithNewPid(new_pid);
-        }
-
-        if is_process_alive(new_pid) {
+            // Fall through to failure handling below.
+        } else if is_expected_process_alive(new_pid, &entry.executable_path) {
+            return (LivenessOutcome::AliveNewPid(new_pid), 0, None);
+        } else if is_process_alive(new_pid) {
             log::warn!(
                 "Instance {} rejected PID update {} -> {}: executable path mismatch",
                 entry.id,
@@ -404,13 +390,37 @@ fn probe_liveness(entry: &LiveSnapshot) -> LivenessProbeResult {
         }
     }
 
-    LivenessProbeResult::Dead
+    // Liveness probe failed — apply retry/threshold logic.
+    let new_count = entry.alive_failure_count + 1;
+
+    if new_count >= ALIVE_EXIT_THRESHOLD {
+        log::warn!(
+            "Instance {} liveness probe failed {} times, treating process as exited",
+            entry.id,
+            new_count
+        );
+        // Signal definitive death: zeroed counters tell the caller to remove the slot.
+        (LivenessOutcome::Dead, 0, None)
+    } else {
+        let backoff = calculate_health_backoff(new_count);
+        log::debug!(
+            "Instance {} liveness probe failed (count: {}), retry in {}s",
+            entry.id,
+            new_count,
+            backoff.as_secs()
+        );
+        (LivenessOutcome::Dead, new_count, Some(now + backoff))
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
-fn evaluate_liveness(entry: &LiveSnapshot, _now: Instant) -> Option<AliveUpdate> {
-    is_expected_process_alive(entry.pid, &entry.executable_path).then(|| AliveUpdate {
-        health_failure_count: entry.health_failure_count,
-        next_health_check_at: entry.next_health_check_at,
-    })
+fn probe_liveness(
+    entry: &LiveSnapshot,
+    _now: Instant,
+) -> (LivenessOutcome, u32, Option<Instant>) {
+    if is_expected_process_alive(entry.pid, &entry.executable_path) {
+        (LivenessOutcome::AliveSamePid, 0, None)
+    } else {
+        (LivenessOutcome::Dead, 0, None)
+    }
 }

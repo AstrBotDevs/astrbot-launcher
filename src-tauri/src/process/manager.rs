@@ -28,14 +28,9 @@ pub(super) enum Slot {
     Starting,
     /// Process running (healthy or unhealthy, derived from `InstanceProcess`).
     Live(InstanceProcess),
-    /// Shutdown IO in progress. Retains pid/exe so the exit handler can
-    /// force-kill processes that are still shutting down.
-    Stopping {
-        pid: u32,
-        executable_path: PathBuf,
-        port: u16,
-        dashboard_enabled: bool,
-    },
+    /// Shutdown IO in progress. Keeps the same process info so the exit
+    /// handler can force-kill processes that are still shutting down.
+    Stopping(InstanceProcess),
 }
 
 pub(super) struct ProcessState {
@@ -81,42 +76,29 @@ impl ProcessState {
         if self.guarded.contains(id) {
             return Err(AppError::process("Another operation is in progress"));
         }
-        match self.slots.get(id) {
+        match self.slots.remove(id) {
             Some(Slot::Live(p)) => {
                 let pid = p.pid;
                 let exe = p.executable_path.clone();
-                let port = p.port;
-                let dashboard_enabled = p.dashboard_enabled;
-                self.slots.insert(
-                    id.to_string(),
-                    Slot::Stopping {
-                        pid,
-                        executable_path: exe.clone(),
-                        port,
-                        dashboard_enabled,
-                    },
-                );
+                self.slots.insert(id.to_string(), Slot::Stopping(p));
                 Ok((pid, exe))
             }
-            Some(Slot::Stopping { .. }) => Err(AppError::process("Instance is already stopping")),
-            Some(Slot::Starting) => Err(AppError::process("Instance is still starting")),
+            Some(slot @ Slot::Stopping(_)) => {
+                self.slots.insert(id.to_string(), slot);
+                Err(AppError::process("Instance is already stopping"))
+            }
+            Some(slot @ Slot::Starting) => {
+                self.slots.insert(id.to_string(), slot);
+                Err(AppError::process("Instance is still starting"))
+            }
             None => Err(AppError::instance_not_running()),
         }
     }
 
     /// Revert a `Stopping` slot back to `Live`. Returns `true` if reverted.
     fn revert_stop(&mut self, id: &str) -> bool {
-        if let Some(Slot::Stopping {
-            pid,
-            executable_path,
-            port,
-            dashboard_enabled,
-        }) = self.slots.remove(id)
-        {
-            self.slots.insert(
-                id.to_string(),
-                Slot::Live(InstanceProcess::new(pid, executable_path, port, dashboard_enabled)),
-            );
+        if let Some(Slot::Stopping(p)) = self.slots.remove(id) {
+            self.slots.insert(id.to_string(), Slot::Live(p));
             true
         } else {
             false
@@ -131,43 +113,25 @@ impl ProcessState {
         self.shutting_down = true;
         self.guarded.clear();
 
-        let all_slots: Vec<(String, Slot)> = self.slots.drain().collect();
-        let mut targets = Vec::new();
-
-        for (id, slot) in all_slots {
-            match slot {
-                Slot::Live(p) => {
-                    targets.push(ShutdownTarget {
-                        id,
-                        pid: p.pid,
-                        port: p.port,
-                        executable_path: p.executable_path,
-                    });
-                }
-                Slot::Stopping {
-                    pid,
-                    executable_path,
-                    port,
-                    ..
-                } => {
-                    targets.push(ShutdownTarget {
-                        id,
-                        pid,
-                        port,
-                        executable_path,
-                    });
-                }
+        self.slots
+            .drain()
+            .filter_map(|(id, slot)| match slot {
+                Slot::Live(p) | Slot::Stopping(p) => Some(ShutdownTarget {
+                    id,
+                    pid: p.pid,
+                    port: p.port,
+                    executable_path: p.executable_path,
+                }),
                 Slot::Starting => {
                     log::info!(
                         "Cleared Starting slot for instance {} during shutdown \
                          (async task will handle cleanup)",
                         id
                     );
+                    None
                 }
-            }
-        }
-
-        targets
+            })
+            .collect()
     }
 }
 
@@ -270,13 +234,9 @@ impl ProcessManager {
                         port: p.port,
                         dashboard_enabled: p.dashboard_enabled,
                     },
-                    Slot::Stopping {
-                        port,
-                        dashboard_enabled,
-                        ..
-                    } => InstanceRuntimeInfo::Stopping {
-                        port: *port,
-                        dashboard_enabled: *dashboard_enabled,
+                    Slot::Stopping(p) => InstanceRuntimeInfo::Stopping {
+                        port: p.port,
+                        dashboard_enabled: p.dashboard_enabled,
                     },
                 };
                 (id.clone(), info)

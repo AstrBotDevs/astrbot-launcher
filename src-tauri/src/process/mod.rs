@@ -71,10 +71,10 @@ pub struct InstanceProcess {
     /// Number of consecutive health check failures.
     pub(crate) health_failure_count: u32,
     /// Number of consecutive failed liveness probes.
-    #[cfg(target_os = "windows")]
+    /// Always 0 on non-Windows (no retry mechanism).
     pub(crate) alive_failure_count: u32,
     /// When to perform the next liveness probe (for exponential backoff).
-    #[cfg(target_os = "windows")]
+    /// Always `None` on non-Windows (no retry mechanism).
     pub(crate) next_alive_check_at: Option<std::time::Instant>,
 }
 
@@ -115,9 +115,7 @@ impl InstanceProcess {
             dashboard_enabled,
             next_health_check_at: None,
             health_failure_count: 0,
-            #[cfg(target_os = "windows")]
             alive_failure_count: 0,
-            #[cfg(target_os = "windows")]
             next_alive_check_at: None,
         }
     }
