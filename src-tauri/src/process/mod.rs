@@ -20,7 +20,7 @@ pub use control::{
     can_signal_expected_process, check_port_available, find_available_port, force_kill,
     graceful_shutdown, is_expected_process_alive, resolve_process_executable_path,
 };
-pub use manager::ProcessManager;
+pub use manager::{ProcessManager, SlotKind};
 
 /// Maximum backoff interval between health checks.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);

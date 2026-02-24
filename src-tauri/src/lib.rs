@@ -26,7 +26,7 @@ use tauri_plugin_log::{fern, Target, TargetKind};
 use commands::AppState;
 use config::{load_config, with_manifest_mut};
 pub use error::{AppError, ErrorKind, Result};
-use process::ProcessManager;
+use process::{ProcessManager, SlotKind};
 use utils::log_bus::LogEntry;
 
 #[allow(clippy::expect_used)]
@@ -149,7 +149,9 @@ pub fn run() {
                 // Persist tracked instance IDs if enabled
                 if let Ok(cfg) = load_config() {
                     if cfg.persist_instance_state {
-                        let tracked_ids = state.process_manager.get_tracked_ids();
+                        let tracked_ids = state
+                            .process_manager
+                            .get_tracked_ids(&[SlotKind::Live, SlotKind::Starting]);
                         let _ = with_manifest_mut(|manifest| {
                             manifest.tracked_instances_snapshot = tracked_ids;
                             Ok(())

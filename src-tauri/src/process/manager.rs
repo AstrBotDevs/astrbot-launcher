@@ -19,6 +19,15 @@ use crate::error::{AppError, Result};
 use crate::instance::lifecycle;
 use crate::utils::sync::lock_mutex_recover;
 
+/// Data-free discriminant of [`Slot`], used as a filter key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotKind {
+    Guarded,
+    Starting,
+    Live,
+    Stopping,
+}
+
 /// A single slot in the process state machine.
 ///
 /// Each instance occupies at most one slot. The variant encodes the lifecycle
@@ -38,6 +47,17 @@ pub(super) enum Slot {
         port: u16,
         dashboard_enabled: bool,
     },
+}
+
+impl Slot {
+    pub(super) fn kind(&self) -> SlotKind {
+        match self {
+            Self::Guarded => SlotKind::Guarded,
+            Self::Starting => SlotKind::Starting,
+            Self::Live(_) => SlotKind::Live,
+            Self::Stopping { .. } => SlotKind::Stopping,
+        }
+    }
 }
 
 pub(super) struct ProcessState {
@@ -153,15 +173,12 @@ impl ProcessManager {
             .collect()
     }
 
-    pub fn get_tracked_ids(&self) -> Vec<String> {
+    pub fn get_tracked_ids(&self, kinds: &[SlotKind]) -> Vec<String> {
         let state = lock_mutex_recover(&self.state, "ProcessState");
         state
             .slots
             .iter()
-            .filter_map(|(id, slot)| match slot {
-                Slot::Live(_) => Some(id.clone()),
-                _ => None,
-            })
+            .filter_map(|(id, slot)| kinds.contains(&slot.kind()).then(|| id.clone()))
             .collect()
     }
 
