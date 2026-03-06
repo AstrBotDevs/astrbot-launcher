@@ -1,5 +1,4 @@
 use std::fs;
-use std::io;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -9,39 +8,6 @@ use crate::utils::archive_path::parse_entry_rel_path;
 use super::extract::write_entry;
 use super::links::{create_queued_symlinks, queue_symlink, QueuedSymlink};
 use super::path::{detect_common_top_dir, resolve_within_dir, strip_common_top_dir};
-
-/// Append a directory recursively to a zip archive under the provided prefix.
-///
-/// Rust `&str` guarantees UTF-8; the zip crate automatically sets the EFS flag.
-pub(crate) fn append_dir_tree_to_zip<W: io::Write + io::Seek>(
-    writer: &mut zip::ZipWriter<W>,
-    dir: &Path,
-    prefix: &str,
-    options: zip::write::SimpleFileOptions,
-) -> Result<()> {
-    for entry in walkdir::WalkDir::new(dir) {
-        let entry = entry?;
-        let path = entry.path();
-        let relative = path
-            .strip_prefix(dir)
-            .map_err(|e| AppError::io(e.to_string()))?;
-        let archive_path = format!("{prefix}/{}", relative.display());
-
-        if path.is_dir() && path != dir {
-            writer
-                .add_directory(&archive_path, options)
-                .map_err(|e| AppError::io(e.to_string()))?;
-        } else if path.is_file() {
-            writer
-                .start_file(&archive_path, options)
-                .map_err(|e| AppError::io(e.to_string()))?;
-            let mut f = fs::File::open(path).map_err(|e| AppError::io(e.to_string()))?;
-            io::copy(&mut f, writer).map_err(|e| AppError::io(e.to_string()))?;
-        }
-    }
-
-    Ok(())
-}
 
 /// Extract zip entries using a caller-provided destination resolver.
 ///

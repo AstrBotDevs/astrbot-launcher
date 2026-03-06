@@ -114,6 +114,7 @@ export interface BackupMetadata {
   instance_id: string;
   version: string;
   arch_target: string;
+  auto_generated?: boolean;
 }
 
 export interface BackupInfo {

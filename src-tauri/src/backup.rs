@@ -1,15 +1,19 @@
+use std::ffi::OsStr;
 use std::fs::{self, File};
+use std::io;
 use std::io::Read as _;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 use tar::Archive;
+use walkdir::WalkDir;
 
-use crate::archive::{append_dir_tree_to_zip, extract_tar_gz_mapped, extract_zip_mapped};
+use crate::archive::{extract_tar_gz_mapped, extract_zip_mapped};
 use crate::config::{load_manifest, with_manifest_mut, BackupInfo, BackupMetadata, InstanceConfig};
 use crate::error::{AppError, Result};
 use crate::utils::archive_path::parse_entry_rel_path;
+use crate::utils::lock::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::paths::{get_backups_dir, get_instance_core_dir, get_instance_dir};
 use crate::utils::validation::validate_instance_id;
 use crate::validation::resolve_backup_path;
@@ -20,6 +24,52 @@ fn is_tar_gz(path: &Path) -> bool {
         .and_then(|n| n.to_str())
         .map(|n| n.ends_with(".tar.gz"))
         .unwrap_or(false)
+}
+
+fn path_contains_pycache(path: &Path) -> bool {
+    path.components()
+        .any(|component| component.as_os_str() == OsStr::new("__pycache__"))
+}
+
+fn append_data_dir_to_zip_excluding_pycache<W: io::Write + io::Seek>(
+    writer: &mut zip::ZipWriter<W>,
+    data_dir: &Path,
+    options: zip::write::SimpleFileOptions,
+) -> Result<()> {
+    let mut iter = WalkDir::new(data_dir).into_iter();
+    while let Some(entry) = iter.next() {
+        let entry = entry.map_err(|e| AppError::io(e.to_string()))?;
+        let path = entry.path();
+
+        if entry.file_type().is_dir() && entry.file_name() == OsStr::new("__pycache__") {
+            iter.skip_current_dir();
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(data_dir)
+            .map_err(|e| AppError::io(e.to_string()))?;
+        let archive_path = format!("data/{}", relative.display());
+
+        if entry.file_type().is_dir() {
+            if path != data_dir {
+                writer
+                    .add_directory(&archive_path, options)
+                    .map_err(|e| AppError::io(e.to_string()))?;
+            }
+            continue;
+        }
+
+        if entry.file_type().is_file() {
+            writer
+                .start_file(&archive_path, options)
+                .map_err(|e| AppError::io(e.to_string()))?;
+            let mut f = fs::File::open(path).map_err(|e| AppError::io(e.to_string()))?;
+            io::copy(&mut f, writer).map_err(|e| AppError::io(e.to_string()))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Common backup creation logic.
@@ -73,7 +123,7 @@ fn create_backup_archive(
 
     // Add data directory
     if data_dir.exists() {
-        append_dir_tree_to_zip(&mut writer, &data_dir, "data", options)
+        append_data_dir_to_zip_excluding_pycache(&mut writer, &data_dir, options)
             .map_err(|e| AppError::backup(format!("Failed to add data dir: {}", e)))?;
     }
 
@@ -89,8 +139,8 @@ fn create_backup_archive(
 
 /// Create a backup of an instance.
 ///
-/// When `auto_generated` is `true` the backup is tagged in its metadata and
-/// hidden from the user-facing backup list.
+/// When `auto_generated` is `true`, the backup is tagged in metadata so UI can
+/// show it as an auto-generated backup.
 pub fn create_backup(instance_id: &str, auto_generated: bool) -> Result<String> {
     log::info!("Creating backup for instance {}", instance_id);
     let manifest = load_manifest()?;
@@ -103,6 +153,8 @@ pub fn create_backup(instance_id: &str, auto_generated: bool) -> Result<String> 
     if !data_dir.exists() {
         return Err(AppError::backup("No data directory to back up"));
     }
+    let data_files = collect_files_for_lock_check(&data_dir)?;
+    ensure_target_not_locked(&data_files)?;
 
     create_backup_archive(instance, instance_id, auto_generated)
 }
@@ -145,10 +197,6 @@ pub fn list_backups() -> Result<Vec<BackupInfo>> {
 
         match read_backup_metadata(&path) {
             Ok(metadata) => {
-                // Skip auto-generated backups
-                if metadata.auto_generated {
-                    continue;
-                }
                 backups.push(BackupInfo {
                     filename: fname,
                     path: path_str,
@@ -183,6 +231,85 @@ pub fn list_backups() -> Result<Vec<BackupInfo>> {
     backups.sort_by(|a, b| b.metadata.created_at.cmp(&a.metadata.created_at));
 
     Ok(backups)
+}
+
+/// Find the latest auto-generated backup for the specified instance, if any.
+///
+/// This is used to detect unfinished upgrade/downgrade recovery flows.
+pub fn find_pending_auto_backup(instance_id: &str) -> Result<Option<BackupInfo>> {
+    validate_instance_id(instance_id)?;
+
+    let backups_dir = get_backups_dir();
+    if !backups_dir.exists() {
+        return Ok(None);
+    }
+
+    let filename_prefix = format!("{instance_id}-");
+    let mut latest: Option<(BackupInfo, std::time::SystemTime)> = None;
+
+    for entry in fs::read_dir(&backups_dir)
+        .map_err(|e| AppError::backup(format!("Failed to read backups dir: {}", e)))?
+    {
+        let entry = entry.map_err(|e| AppError::backup(e.to_string()))?;
+        let path = entry.path();
+
+        let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+            log::warn!("Skipping backup with non-UTF-8 filename: {:?}", path);
+            continue;
+        };
+        let is_supported = filename.ends_with(".zip") || filename.ends_with(".tar.gz");
+        let is_auto_candidate =
+            filename.starts_with(&filename_prefix) && filename.contains("-auto");
+        if !is_supported || !is_auto_candidate {
+            continue;
+        }
+
+        let Some(mtime) = fs::metadata(&path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+        else {
+            continue;
+        };
+
+        let metadata = match read_backup_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                log::warn!("Backup metadata parse failed for {:?}: {}", path, err);
+                continue;
+            }
+        };
+        if !metadata.auto_generated || metadata.instance_id != instance_id {
+            continue;
+        }
+
+        let Some(path_str) = path.to_str() else {
+            log::warn!("Skipping backup with non-UTF-8 path: {:?}", path);
+            continue;
+        };
+
+        let info = BackupInfo {
+            filename: filename.to_string(),
+            path: path_str.to_string(),
+            metadata,
+            corrupted: false,
+            parse_error: None,
+        };
+
+        match &latest {
+            None => latest = Some((info, mtime)),
+            Some((current, current_mtime)) => {
+                let is_newer = mtime
+                    .cmp(current_mtime)
+                    .then_with(|| info.metadata.created_at.cmp(&current.metadata.created_at))
+                    .is_gt();
+                if is_newer {
+                    latest = Some((info, mtime));
+                }
+            }
+        }
+    }
+
+    Ok(latest.map(|(backup, _)| backup))
 }
 
 fn read_backup_metadata(backup_path: &Path) -> Result<BackupMetadata> {
@@ -238,6 +365,23 @@ fn read_backup_metadata_zip(backup_path: &Path) -> Result<BackupMetadata> {
         .map_err(|e| AppError::backup(format!("Failed to parse metadata: {}", e)))
 }
 
+fn cleanup_auto_backup(backup_path: &Path, operation_name: &str) {
+    if let Err(e) = fs::remove_file(backup_path) {
+        log::warn!(
+            "{} succeeded, but failed to delete auto-generated backup {:?}: {}",
+            operation_name,
+            backup_path,
+            e
+        );
+    } else {
+        log::info!(
+            "Deleted auto-generated backup after successful {}: {:?}",
+            operation_name,
+            backup_path
+        );
+    }
+}
+
 pub fn resolve_restore_backup_input(backup_path: &str) -> Result<(PathBuf, BackupMetadata)> {
     log::info!("Restoring backup from {:?}", backup_path);
     let backup_path = resolve_backup_path(backup_path, true)?;
@@ -266,6 +410,9 @@ pub fn restore_backup_with_input(backup_path: PathBuf, metadata: BackupMetadata)
 
     let instance_dir = get_instance_dir(instance_id);
     let core_dir = get_instance_core_dir(instance_id);
+    let data_dir = core_dir.join("data");
+    let data_files = collect_files_for_lock_check(&data_dir)?;
+    ensure_target_not_locked(&data_files)?;
 
     // Extract backup to existing instance
     extract_backup_to_instance(&backup_path, &instance_dir, &core_dir)?;
@@ -278,6 +425,10 @@ pub fn restore_backup_with_input(backup_path: PathBuf, metadata: BackupMetadata)
         Ok(())
     })?;
 
+    if metadata.auto_generated {
+        cleanup_auto_backup(&backup_path, "restore");
+    }
+
     Ok(())
 }
 
@@ -289,6 +440,9 @@ fn route_backup_entry(relative: &Path, core_dir: &Path) -> Option<PathBuf> {
     }
 
     if relative.starts_with("data") {
+        if path_contains_pycache(relative) {
+            return None;
+        }
         return Some(core_dir.join(relative));
     }
     if relative.starts_with("venv") {
@@ -337,11 +491,18 @@ pub fn restore_data_to_instance(backup_path: &str, instance_id: &str) -> Result<
     validate_instance_id(instance_id)?;
 
     let backup_path = resolve_backup_path(backup_path, true)?;
+    let metadata = read_backup_metadata(&backup_path)?;
     let core_dir = get_instance_core_dir(instance_id);
+    let data_dir = core_dir.join("data");
+    let data_files = collect_files_for_lock_check(&data_dir)?;
+    ensure_target_not_locked(&data_files)?;
 
     let routing = |raw_path: &str| -> Option<PathBuf> {
         let relative = parse_entry_rel_path(raw_path)?;
         if !relative.starts_with("data") {
+            return None;
+        }
+        if path_contains_pycache(&relative) {
             return None;
         }
 
@@ -353,5 +514,11 @@ pub fn restore_data_to_instance(backup_path: &str, instance_id: &str) -> Result<
     } else {
         extract_zip_mapped(&backup_path, &core_dir, routing)
     }
-    .map_err(|e| AppError::backup(format!("Failed to restore backup data: {}", e)))
+    .map_err(|e| AppError::backup(format!("Failed to restore backup data: {}", e)))?;
+
+    if metadata.auto_generated {
+        cleanup_auto_backup(&backup_path, "data restore");
+    }
+
+    Ok(())
 }
