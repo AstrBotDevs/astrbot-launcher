@@ -169,21 +169,18 @@ impl ProcessManager {
             shutting_down: false,
         }));
 
-        let http_client = match Client::builder()
+        let http_client = Client::builder()
             .timeout(Duration::from_secs(3))
             .no_proxy()
             .build()
-        {
-            Ok(client) => Some(client),
-            Err(e) => {
+            .map_err(|e| {
                 log::error!(
-                    "Failed to create monitor HTTP client (TLS init failure): {}. \
+                    "Failed to create monitor HTTP client: {}. \
                      Health checks will be degraded to liveness-only mode.",
                     e
                 );
-                None
-            }
-        };
+            })
+            .ok();
 
         Self {
             state,

@@ -121,6 +121,36 @@ async fn evaluate_instances(
     entries: &[LiveSnapshot],
     http_client: Option<&Client>,
 ) -> Vec<MonitorOutcome> {
+    match http_client {
+        Some(client) => evaluate_instances_with_health(entries, client).await,
+        None => evaluate_instances_liveness_only(entries),
+    }
+}
+
+/// Liveness-only evaluation when no HTTP client is available.
+fn evaluate_instances_liveness_only(entries: &[LiveSnapshot]) -> Vec<MonitorOutcome> {
+    let now = Instant::now();
+    let mut outcomes = Vec::new();
+
+    for entry in entries {
+        let Some(outcome) = evaluate_liveness(entry, now) else {
+            outcomes.push(MonitorOutcome::Dead {
+                id: entry.id.clone(),
+            });
+            continue;
+        };
+
+        outcomes.push(outcome);
+    }
+
+    outcomes
+}
+
+/// Full evaluation with concurrent HTTP health checks for dashboard-enabled instances.
+async fn evaluate_instances_with_health(
+    entries: &[LiveSnapshot],
+    http_client: &Client,
+) -> Vec<MonitorOutcome> {
     let now = Instant::now();
     let mut outcomes: Vec<MonitorOutcome> = Vec::new();
     let mut needs_health_check: Vec<(&LiveSnapshot, MonitorOutcome)> = Vec::new();
@@ -139,50 +169,38 @@ async fn evaluate_instances(
             continue;
         }
 
-        match http_client {
-            Some(_) => {
-                // Dashboard enabled: health check will overwrite health fields in outcome.
-                needs_health_check.push((entry, outcome));
-            }
-            None => {
-                // No HTTP client available — skip HTTP health check, use liveness only.
-                outcomes.push(outcome);
-            }
-        }
+        // Dashboard enabled: health check will overwrite health fields in outcome.
+        needs_health_check.push((entry, outcome));
     }
 
-    // Concurrent health checks (inlined — no separate helper function)
-    // needs_health_check is only populated when http_client is Some.
-    if let Some(client) = http_client {
-        let health_futures: Vec<_> = needs_health_check
-            .into_iter()
-            .map(|(entry, outcome)| async move {
-                let (health_failure_count, next_health_check_at) =
-                    evaluate_health(entry, now, client).await;
-                match outcome {
-                    MonitorOutcome::Alive {
-                        id,
-                        alive_failure_count,
-                        next_alive_check_at,
-                        new_pid,
-                        ..
-                    } => MonitorOutcome::Alive {
-                        id,
-                        health_failure_count,
-                        next_health_check_at,
-                        alive_failure_count,
-                        next_alive_check_at,
-                        new_pid,
-                    },
-                    dead @ MonitorOutcome::Dead { .. } => dead,
-                }
-            })
-            .collect();
-        let health_results = futures_util::future::join_all(health_futures).await;
+    // Concurrent health checks
+    let health_futures: Vec<_> = needs_health_check
+        .into_iter()
+        .map(|(entry, outcome)| async move {
+            let (health_failure_count, next_health_check_at) =
+                evaluate_health(entry, now, http_client).await;
+            match outcome {
+                MonitorOutcome::Alive {
+                    id,
+                    alive_failure_count,
+                    next_alive_check_at,
+                    new_pid,
+                    ..
+                } => MonitorOutcome::Alive {
+                    id,
+                    health_failure_count,
+                    next_health_check_at,
+                    alive_failure_count,
+                    next_alive_check_at,
+                    new_pid,
+                },
+                dead @ MonitorOutcome::Dead { .. } => dead,
+            }
+        })
+        .collect();
+    let health_results = futures_util::future::join_all(health_futures).await;
 
-        outcomes.extend(health_results);
-    }
-
+    outcomes.extend(health_results);
     outcomes
 }
 
