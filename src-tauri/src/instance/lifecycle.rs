@@ -63,10 +63,7 @@ async fn resolve_child_executable_path(
 ///
 /// Does NOT interact with ProcessManager. On failure, cleans up (kills child
 /// if spawned). On success, returns `LaunchResult`.
-pub async fn launch_instance(
-    instance_id: &str,
-    app_handle: &AppHandle,
-) -> Result<LaunchResult> {
+pub async fn launch_instance(instance_id: &str, app_handle: &AppHandle) -> Result<LaunchResult> {
     validate_instance_id(instance_id)?;
     log::debug!("Starting instance {}", instance_id);
 

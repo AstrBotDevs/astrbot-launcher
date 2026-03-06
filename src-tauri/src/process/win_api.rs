@@ -1,18 +1,25 @@
 //! Windows native API helpers for process management.
 
+use std::collections::HashSet;
 use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt as _;
+use std::fmt;
+use std::os::windows::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::PathBuf;
 
-use windows::core::PWSTR;
+use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER, NO_ERROR, STILL_ACTIVE,
+    CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, NO_ERROR,
+    STILL_ACTIVE, WIN32_ERROR,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
     MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+use windows::Win32::System::RestartManager::{
+    RmEndSession, RmGetList, RmRegisterResources, RmStartSession, CCH_RM_SESSION_KEY,
+    RM_PROCESS_INFO,
+};
 use windows::Win32::System::Threading::{
     GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -20,6 +27,135 @@ use windows::Win32::System::Threading::{
 
 /// Maximum number of retries when the TCP table changes between size query and data fetch.
 const TCP_TABLE_MAX_RETRIES: usize = 4;
+/// Number of files registered in each Restart Manager batch.
+const RM_REGISTER_BATCH_SIZE: usize = 256;
+/// Maximum retries when Restart Manager list changes between calls.
+const RM_GET_LIST_MAX_RETRIES: usize = 4;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockingProcessInfo {
+    pub pid: u32,
+    pub app_name: String,
+    pub service_short_name: String,
+    pub executable_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartManagerQueryError {
+    StartSession(WIN32_ERROR),
+    RegisterResources(WIN32_ERROR),
+    GetList(WIN32_ERROR),
+    RetryLimitExceeded,
+}
+
+impl fmt::Display for RestartManagerQueryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StartSession(code) => {
+                write!(
+                    f,
+                    "failed to start Restart Manager session (code={})",
+                    code.0
+                )
+            }
+            Self::RegisterResources(code) => {
+                write!(
+                    f,
+                    "failed to register Restart Manager resources (code={})",
+                    code.0
+                )
+            }
+            Self::GetList(code) => {
+                write!(f, "failed to query Restart Manager list (code={})", code.0)
+            }
+            Self::RetryLimitExceeded => write!(
+                f,
+                "Restart Manager list kept changing; retry limit exceeded"
+            ),
+        }
+    }
+}
+
+struct RestartManagerSession {
+    handle: u32,
+}
+
+impl RestartManagerSession {
+    fn start() -> std::result::Result<Self, RestartManagerQueryError> {
+        let mut handle = 0u32;
+        let mut session_key = [0u16; (CCH_RM_SESSION_KEY + 1) as usize];
+        let result =
+            unsafe { RmStartSession(&mut handle, Some(0), PWSTR(session_key.as_mut_ptr())) };
+        if result == ERROR_SUCCESS {
+            Ok(Self { handle })
+        } else {
+            Err(RestartManagerQueryError::StartSession(result))
+        }
+    }
+}
+
+impl Drop for RestartManagerSession {
+    fn drop(&mut self) {
+        let _ = unsafe { RmEndSession(self.handle) };
+    }
+}
+
+fn wide_z_to_string(buf: &[u16]) -> String {
+    let len = buf.iter().position(|&ch| ch == 0).unwrap_or(buf.len());
+    String::from_utf16_lossy(&buf[..len])
+}
+
+fn get_restart_manager_processes(
+    session_handle: u32,
+) -> std::result::Result<Vec<RM_PROCESS_INFO>, RestartManagerQueryError> {
+    let mut reboot_reasons = 0u32;
+
+    for _ in 0..RM_GET_LIST_MAX_RETRIES {
+        let mut needed = 0u32;
+        let mut process_count = 0u32;
+        let first_result = unsafe {
+            RmGetList(
+                session_handle,
+                &mut needed,
+                &mut process_count,
+                None,
+                &mut reboot_reasons,
+            )
+        };
+
+        if first_result == ERROR_SUCCESS {
+            return Ok(Vec::new());
+        }
+        if first_result != ERROR_MORE_DATA {
+            return Err(RestartManagerQueryError::GetList(first_result));
+        }
+        if needed == 0 {
+            return Ok(Vec::new());
+        }
+
+        let mut affected_processes = vec![RM_PROCESS_INFO::default(); needed as usize];
+        process_count = needed;
+        let second_result = unsafe {
+            RmGetList(
+                session_handle,
+                &mut needed,
+                &mut process_count,
+                Some(affected_processes.as_mut_ptr()),
+                &mut reboot_reasons,
+            )
+        };
+
+        if second_result == ERROR_SUCCESS {
+            affected_processes.truncate(process_count as usize);
+            return Ok(affected_processes);
+        }
+        if second_result != ERROR_MORE_DATA {
+            return Err(RestartManagerQueryError::GetList(second_result));
+        }
+    }
+
+    Err(RestartManagerQueryError::RetryLimitExceeded)
+}
 
 /// Fetch the extended TCP table into a properly aligned buffer, retrying on transient
 /// `ERROR_INSUFFICIENT_BUFFER` (the table may grow between the size query and the data fetch).
@@ -190,4 +326,60 @@ pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
 
     let _ = unsafe { CloseHandle(handle) };
     result
+}
+
+/// Return processes that currently hold any of the provided files.
+///
+/// Uses Windows Restart Manager (`RmStartSession` / `RmRegisterResources` /
+/// `RmGetList`). Returns an empty vector when no process is holding files.
+pub fn get_processes_locking_files(
+    file_paths: &[PathBuf],
+) -> std::result::Result<Vec<LockingProcessInfo>, RestartManagerQueryError> {
+    if file_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let session = RestartManagerSession::start()?;
+
+    let wide_paths: Vec<Vec<u16>> = file_paths
+        .iter()
+        .map(|path| {
+            path.as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        })
+        .collect();
+    let path_ptrs: Vec<PCWSTR> = wide_paths
+        .iter()
+        .map(|path| PCWSTR(path.as_ptr()))
+        .collect();
+
+    for chunk in path_ptrs.chunks(RM_REGISTER_BATCH_SIZE) {
+        let register_result =
+            unsafe { RmRegisterResources(session.handle, Some(chunk), None, None) };
+        if register_result != ERROR_SUCCESS {
+            return Err(RestartManagerQueryError::RegisterResources(register_result));
+        }
+    }
+
+    let affected_processes = get_restart_manager_processes(session.handle)?;
+
+    let mut seen_pids = HashSet::new();
+    let mut locking_processes = Vec::with_capacity(affected_processes.len());
+    for process in affected_processes {
+        let pid = process.Process.dwProcessId;
+        if pid == 0 || !seen_pids.insert(pid) {
+            continue;
+        }
+
+        locking_processes.push(LockingProcessInfo {
+            pid,
+            app_name: wide_z_to_string(&process.strAppName),
+            service_short_name: wide_z_to_string(&process.strServiceShortName),
+            executable_path: get_process_executable_path(pid),
+        });
+    }
+
+    Ok(locking_processes)
 }

@@ -1,5 +1,6 @@
 pub(crate) mod archive_path;
 pub(crate) mod index_url;
+pub(crate) mod lock;
 pub(crate) mod log_bus;
 pub(crate) mod net;
 pub(crate) mod paths;

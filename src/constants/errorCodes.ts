@@ -12,6 +12,7 @@ export const ErrorCode = {
   PROCESS: 3003,
   PORT_OCCUPIED: 3004,
   STARTUP_TIMEOUT: 3005,
+  PROCESS_LOCKING: 3006,
   BACKUP: 4001,
   GITHUB: 4002,
   OTHER: 9999,
@@ -33,6 +34,7 @@ const ERROR_TEMPLATES: Record<number, ErrorTemplate> = {
   [ErrorCode.PYTHON]: 'Python 错误: {detail}',
   [ErrorCode.PYTHON_NOT_INSTALLED]: 'Python 未安装',
   [ErrorCode.PROCESS]: '进程错误: {detail}',
+  [ErrorCode.PROCESS_LOCKING]: '{detail}',
   [ErrorCode.PORT_OCCUPIED]: '端口 {port} 已被占用',
   [ErrorCode.STARTUP_TIMEOUT]: '实例启动超时',
   [ErrorCode.BACKUP]: (p) =>

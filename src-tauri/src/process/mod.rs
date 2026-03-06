@@ -104,10 +104,7 @@ pub enum InstanceRuntimeInfo {
         dashboard_enabled: bool,
     },
     /// Shutdown in progress. Values captured from Live at transition time.
-    Stopping {
-        port: u16,
-        dashboard_enabled: bool,
-    },
+    Stopping { port: u16, dashboard_enabled: bool },
 }
 
 impl InstanceProcess {

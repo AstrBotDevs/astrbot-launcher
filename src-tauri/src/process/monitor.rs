@@ -10,9 +10,9 @@ use std::time::Instant;
 use reqwest::Client;
 use tokio::sync::broadcast;
 
-use super::manager::{derive_health_state, InstanceEntry, ProcessState, Slot};
 use super::control::is_expected_process_alive;
 use super::health::check_health;
+use super::manager::{derive_health_state, InstanceEntry, ProcessState, Slot};
 use super::{InstanceState, RuntimeEvent, UNHEALTHY_THRESHOLD};
 use crate::utils::sync::lock_mutex_recover;
 
@@ -117,17 +117,16 @@ pub(super) async fn poll_instances(
 
 /// Evaluate all instances. Liveness checks are synchronous; health checks run
 /// concurrently via `join_all`.
-async fn evaluate_instances(
-    entries: &[LiveSnapshot],
-    http_client: &Client,
-) -> Vec<MonitorOutcome> {
+async fn evaluate_instances(entries: &[LiveSnapshot], http_client: &Client) -> Vec<MonitorOutcome> {
     let now = Instant::now();
     let mut outcomes: Vec<MonitorOutcome> = Vec::new();
     let mut needs_health_check: Vec<(&LiveSnapshot, MonitorOutcome)> = Vec::new();
 
     for entry in entries {
         let Some(outcome) = evaluate_liveness(entry, now) else {
-            outcomes.push(MonitorOutcome::Dead { id: entry.id.clone() });
+            outcomes.push(MonitorOutcome::Dead {
+                id: entry.id.clone(),
+            });
             continue;
         };
 
@@ -186,7 +185,10 @@ fn apply_outcomes(
                 // method may have transitioned the slot in the meantime.
                 if matches!(
                     state.slots.get(id),
-                    Some(InstanceEntry { slot: Some(Slot::Live(_)), .. })
+                    Some(InstanceEntry {
+                        slot: Some(Slot::Live(_)),
+                        ..
+                    })
                 ) {
                     state.slots.remove(id);
                     log::info!("Removed dead process tracking entry for instance {}", id);
@@ -201,8 +203,10 @@ fn apply_outcomes(
                 next_alive_check_at,
                 new_pid,
             } => {
-                if let Some(InstanceEntry { slot: Some(Slot::Live(p)), .. }) =
-                    state.slots.get_mut(id)
+                if let Some(InstanceEntry {
+                    slot: Some(Slot::Live(p)),
+                    ..
+                }) = state.slots.get_mut(id)
                 {
                     let old_state = derive_health_state(p);
 
