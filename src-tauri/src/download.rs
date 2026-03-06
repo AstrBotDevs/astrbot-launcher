@@ -60,6 +60,9 @@ fn compute_percent_0_99(downloaded: u64, total: Option<u64>) -> Option<u8> {
 }
 
 /// Download a file from `url` and stream it to `dest`.
+///
+/// On failure the partially-written file is removed so callers never see a
+/// truncated / corrupt artifact.
 pub async fn download_file(
     client: &Client,
     url: &str,
@@ -71,6 +74,21 @@ pub async fn download_file(
         fs::create_dir_all(parent).map_err(|e| AppError::io(e.to_string()))?;
     }
 
+    let result = download_file_inner(client, url, dest, opts).await;
+
+    if result.is_err() {
+        let _ = fs::remove_file(dest);
+    }
+
+    result
+}
+
+async fn download_file_inner(
+    client: &Client,
+    url: &str,
+    dest: &Path,
+    opts: Option<&DownloadOptions<'_>>,
+) -> Result<()> {
     let resp = send_get(client, url, false)
         .await
         .map_err(|e| AppError::network(e.to_string()))?;

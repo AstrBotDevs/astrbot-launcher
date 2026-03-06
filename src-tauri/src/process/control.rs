@@ -330,7 +330,7 @@ pub fn graceful_shutdown(targets: &[(u32, &Path)]) {
 }
 
 pub fn find_available_port() -> Result<u16> {
-    portpicker::pick_unused_port().ok_or_else(|| AppError::process(""))
+    portpicker::pick_unused_port().ok_or_else(|| AppError::process("No available port found"))
 }
 
 pub fn check_port_available(port: u16) -> Result<()> {

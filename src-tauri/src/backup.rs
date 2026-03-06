@@ -49,7 +49,12 @@ fn append_data_dir_to_zip_excluding_pycache<W: io::Write + io::Seek>(
         let relative = path
             .strip_prefix(data_dir)
             .map_err(|e| AppError::io(e.to_string()))?;
-        let archive_path = format!("data/{}", relative.display());
+        // Use forward slashes in archive paths per ZIP spec, regardless of OS.
+        let rel_parts: Vec<_> = relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy())
+            .collect();
+        let archive_path = format!("data/{}", rel_parts.join("/"));
 
         if entry.file_type().is_dir() {
             if path != data_dir {

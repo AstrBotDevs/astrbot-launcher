@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, NO_ERROR,
-    STILL_ACTIVE, WIN32_ERROR,
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE,
+    WIN32_ERROR,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
@@ -299,28 +299,25 @@ pub fn get_process_executable_path(pid: u32) -> Option<PathBuf> {
         let mut path_buf = vec![0u16; capacity as usize];
         let mut path_len = capacity;
 
-        let ok = unsafe {
+        match unsafe {
             QueryFullProcessImageNameW(
                 handle,
                 PROCESS_NAME_FORMAT(0),
                 PWSTR(path_buf.as_mut_ptr()),
                 &mut path_len,
             )
-            .is_ok()
-        };
-        if ok {
-            let exe = OsString::from_wide(&path_buf[..path_len as usize]);
-            break Some(PathBuf::from(exe));
-        }
-
-        let last_error = unsafe { GetLastError() };
-        if last_error != ERROR_INSUFFICIENT_BUFFER {
-            break None;
-        }
-
-        capacity = capacity.saturating_mul(2);
-        if capacity > 32768 {
-            break None;
+        } {
+            Ok(()) => {
+                let exe = OsString::from_wide(&path_buf[..path_len as usize]);
+                break Some(PathBuf::from(exe));
+            }
+            Err(e) if e.code() == ERROR_INSUFFICIENT_BUFFER.to_hresult() => {
+                capacity = capacity.saturating_mul(2);
+                if capacity > 32768 {
+                    break None;
+                }
+            }
+            Err(_) => break None,
         }
     };
 
