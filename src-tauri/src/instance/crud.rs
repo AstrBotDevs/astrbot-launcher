@@ -4,7 +4,7 @@ use tauri::AppHandle;
 
 use super::deploy::{deploy_instance_with_version, emit_progress};
 use super::types::{CmdConfig, InstanceStatus};
-use crate::backup::{create_backup, delete_backup, restore_data_to_instance};
+use crate::backup::{create_backup, find_pending_auto_backup, restore_data_to_instance};
 use crate::config::{load_manifest, with_manifest_mut, AppManifest, InstanceConfig};
 use crate::error::{AppError, Result};
 use crate::process::{InstanceRuntimeInfo, InstanceState, ProcessManager};
@@ -181,6 +181,18 @@ pub async fn update_instance(
         }
     };
 
+    let pending_auto_backup = if new_version.is_some() {
+        find_pending_auto_backup(instance_id)?
+    } else {
+        None
+    };
+    if let Some(pending_auto_backup) = pending_auto_backup {
+        return Err(AppError::backup(format!(
+            "检测到未处理的自动备份 {}（{}）。这通常表示上次升降级的数据还原失败。请先在“备份管理”中手动恢复该备份并确认数据，再继续升降级。",
+            pending_auto_backup.filename, pending_auto_backup.path
+        )));
+    }
+
     if let Some(ref new_version) = new_version {
         log::info!(
             "Updating instance {} to version {}",
@@ -189,9 +201,10 @@ pub async fn update_instance(
         );
         // Version change
 
+        let core_dir = get_instance_core_dir(instance_id);
+
         // Backup
         emit_progress(app_handle, instance_id, "backup", "正在备份数据...", 5);
-        let core_dir = get_instance_core_dir(instance_id);
         let backup_path = if core_dir.join("data").exists() {
             Some(create_backup(instance_id, true)?)
         } else {
@@ -200,7 +213,6 @@ pub async fn update_instance(
         emit_progress(app_handle, instance_id, "backup", "数据备份完成", 10);
 
         // Clear core_dir and venv_dir
-        let core_dir = get_instance_core_dir(instance_id);
         if core_dir.exists() {
             std::fs::remove_dir_all(&core_dir).map_err(|e| {
                 AppError::io(format!(
@@ -225,20 +237,18 @@ pub async fn update_instance(
         // Restore data from backup
         if let Some(ref bp) = backup_path {
             emit_progress(app_handle, instance_id, "restore", "正在还原数据...", 92);
-            restore_data_to_instance(bp, instance_id)?;
+            restore_data_to_instance(bp, instance_id).map_err(|err| {
+                AppError::backup(format!(
+                    "自动备份还原失败，已保留备份 {}。请在“备份管理”中手动恢复该备份并确认数据。原始错误: {}",
+                    bp, err
+                ))
+            })?;
             emit_progress(app_handle, instance_id, "restore", "数据还原完成", 95);
         }
 
         // Update config(version + optional name/port) after the operation completes successfully.
         // This prevents "config says new version" while the deployment hasn't fully finished.
         update_instance_config(instance_id, name, Some(new_version.as_str()), port)?;
-
-        // Delete auto-backup
-        if let Some(ref bp) = backup_path {
-            if let Err(e) = delete_backup(bp) {
-                log::warn!("Failed to delete auto-backup: {}", e);
-            }
-        }
 
         emit_progress(app_handle, instance_id, "done", "更新完成", 100);
         Ok(())
@@ -260,11 +270,9 @@ pub fn list_instances(
         .iter()
         .map(|(id, inst)| {
             let (state, port, dashboard_enabled) = match runtime_info.get(id) {
-                Some(InstanceRuntimeInfo::Starting) => (
-                    InstanceState::Starting,
-                    inst.port,
-                    is_dashboard_enabled(id),
-                ),
+                Some(InstanceRuntimeInfo::Starting) => {
+                    (InstanceState::Starting, inst.port, is_dashboard_enabled(id))
+                }
                 Some(InstanceRuntimeInfo::Live {
                     state,
                     port,
@@ -274,15 +282,10 @@ pub fn list_instances(
                     port,
                     dashboard_enabled,
                 }) => (InstanceState::Stopping, *port, *dashboard_enabled),
-                None => (
-                    InstanceState::Stopped,
-                    inst.port,
-                    is_dashboard_enabled(id),
-                ),
+                None => (InstanceState::Stopped, inst.port, is_dashboard_enabled(id)),
             };
 
-            let pid_tracker_not_available =
-                !dashboard_enabled && std::env::consts::OS == "windows";
+            let pid_tracker_not_available = !dashboard_enabled && std::env::consts::OS == "windows";
 
             InstanceStatus {
                 id: id.clone(),

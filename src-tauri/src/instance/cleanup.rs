@@ -5,6 +5,7 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::error::{AppError, Result};
+use crate::utils::lock::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::paths::{get_instance_core_dir, get_instance_venv_dir};
 use crate::utils::validation::validate_instance_id;
 
@@ -16,6 +17,8 @@ pub fn clear_instance_data(instance_id: &str) -> Result<()> {
     let data_dir = core_dir.join("data");
 
     if data_dir.exists() {
+        let target_files = collect_files_for_lock_check(&data_dir)?;
+        ensure_target_not_locked(&target_files)?;
         std::fs::remove_dir_all(&data_dir)
             .map_err(|e| AppError::io(format!("Failed to clear data: {}", e)))?;
     }

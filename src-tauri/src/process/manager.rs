@@ -13,8 +13,9 @@ use tokio::sync::broadcast;
 
 use super::control::graceful_shutdown;
 use super::monitor;
-use super::{InstanceProcess, InstanceRuntimeInfo, InstanceState, RuntimeEvent};
 use super::UNHEALTHY_THRESHOLD;
+use super::{InstanceProcess, InstanceRuntimeInfo, InstanceState, RuntimeEvent};
+use crate::backup::find_pending_auto_backup;
 use crate::error::{AppError, ErrorKind, Result};
 use crate::instance::lifecycle;
 use crate::utils::sync::lock_mutex_recover;
@@ -212,7 +213,10 @@ impl ProcessManager {
     pub fn get_port(&self, id: &str) -> Option<u16> {
         let state = lock_mutex_recover(&self.state, "ProcessState");
         match state.slots.get(id) {
-            Some(InstanceEntry { slot: Some(Slot::Live(p)), .. }) => Some(p.port),
+            Some(InstanceEntry {
+                slot: Some(Slot::Live(p)),
+                ..
+            }) => Some(p.port),
             _ => None,
         }
     }
@@ -249,9 +253,7 @@ impl ProcessManager {
         state
             .slots
             .iter()
-            .filter(|(_, entry)| {
-                matches!(&entry.slot, Some(Slot::Live(_)) | Some(Slot::Starting))
-            })
+            .filter(|(_, entry)| matches!(&entry.slot, Some(Slot::Live(_)) | Some(Slot::Starting)))
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -264,7 +266,10 @@ impl ProcessManager {
         state.ensure_vacant(id)?;
         state.slots.insert(
             id.to_string(),
-            InstanceEntry { slot: None, guarded: true },
+            InstanceEntry {
+                slot: None,
+                guarded: true,
+            },
         );
         drop(state);
         Ok(InstanceGuard {
@@ -276,6 +281,15 @@ impl ProcessManager {
     // -- Async methods (involve IO) -------------------------------------------
 
     pub async fn start_instance(&self, id: &str, app_handle: tauri::AppHandle) -> Result<u16> {
+        // Check for pending auto backup before attempting to start
+        let pending_auto_backup = find_pending_auto_backup(id)?;
+        if let Some(pending_auto_backup) = pending_auto_backup {
+            return Err(AppError::backup(format!(
+                "检测到未处理的自动备份 {}（{}）。这通常表示上次升降级的数据还原失败。请先在\"备份管理\"中手动恢复该备份并确认数据，再启动实例。",
+                pending_auto_backup.filename, pending_auto_backup.path
+            )));
+        }
+
         // Phase 1: lock → check → set Starting → unlock
         {
             let mut state = lock_mutex_recover(&self.state, "ProcessState");
@@ -283,7 +297,10 @@ impl ProcessManager {
             state.ensure_vacant(id)?;
             state.slots.insert(
                 id.to_string(),
-                InstanceEntry { slot: Some(Slot::Starting), guarded: false },
+                InstanceEntry {
+                    slot: Some(Slot::Starting),
+                    guarded: false,
+                },
             );
         }
         self.emit(id, InstanceState::Starting);
@@ -313,6 +330,15 @@ impl ProcessManager {
     }
 
     pub async fn restart_instance(&self, id: &str, app_handle: tauri::AppHandle) -> Result<u16> {
+        // Check for pending auto backup before attempting to restart
+        let pending_auto_backup = find_pending_auto_backup(id)?;
+        if let Some(pending_auto_backup) = pending_auto_backup {
+            return Err(AppError::backup(format!(
+                "检测到未处理的自动备份 {}（{}）。这通常表示上次升降级的数据还原失败。请先在\"备份管理\"中手动恢复该备份并确认数据，再启动实例。",
+                pending_auto_backup.filename, pending_auto_backup.path
+            )));
+        }
+
         // Phase 1: lock → check → prepare stop if running, or insert Starting directly
         let stop_info = {
             let mut state = lock_mutex_recover(&self.state, "ProcessState");
@@ -323,7 +349,10 @@ impl ProcessManager {
                     // Not running — go straight to Starting.
                     state.slots.insert(
                         id.to_string(),
-                        InstanceEntry { slot: Some(Slot::Starting), guarded: false },
+                        InstanceEntry {
+                            slot: Some(Slot::Starting),
+                            guarded: false,
+                        },
                     );
                     None
                 }
@@ -434,7 +463,12 @@ impl ProcessManager {
         }
 
         for (id, p) in &entries {
-            log::info!("Stopping instance {} (pid: {}, port: {})", id, p.pid, p.port);
+            log::info!(
+                "Stopping instance {} (pid: {}, port: {})",
+                id,
+                p.pid,
+                p.port
+            );
         }
 
         let target_refs: Vec<(u32, &std::path::Path)> = entries
@@ -490,7 +524,10 @@ impl Drop for InstanceGuard {
         // Remove the guard-only entry. If shutdown drained it, this is a no-op.
         if matches!(
             state.slots.get(&self.instance_id),
-            Some(InstanceEntry { slot: None, guarded: true })
+            Some(InstanceEntry {
+                slot: None,
+                guarded: true
+            })
         ) {
             state.slots.remove(&self.instance_id);
         }

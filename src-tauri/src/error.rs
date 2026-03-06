@@ -37,6 +37,8 @@ pub enum ErrorKind {
     PythonNotInstalled,
     /// Process error
     Process,
+    /// Target is locked by other processes
+    ProcessLocking,
     /// Port is occupied
     PortOccupied,
     /// Instance startup timed out
@@ -65,6 +67,7 @@ impl ErrorKind {
             Self::Process => 3003,
             Self::PortOccupied => 3004,
             Self::StartupTimeout => 3005,
+            Self::ProcessLocking => 3006,
             Self::Backup => 4001,
             Self::GitHub => 4002,
             Self::Other => 9999,
@@ -153,6 +156,10 @@ impl AppError {
 
     pub fn process(message: impl Into<String>) -> Self {
         Self::with_detail(ErrorKind::Process, message)
+    }
+
+    pub fn process_locking(message: impl Into<String>) -> Self {
+        Self::with_detail(ErrorKind::ProcessLocking, message)
     }
 
     pub fn port_occupied(port: u16) -> Self {

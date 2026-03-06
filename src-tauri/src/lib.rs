@@ -149,9 +149,7 @@ pub fn run() {
                 // Persist tracked instance IDs if enabled
                 if let Ok(cfg) = load_config() {
                     if cfg.persist_instance_state {
-                        let tracked_ids = state
-                            .process_manager
-                            .get_active_ids();
+                        let tracked_ids = state.process_manager.get_active_ids();
                         let _ = with_manifest_mut(|manifest| {
                             manifest.tracked_instances_snapshot = tracked_ids;
                             Ok(())
