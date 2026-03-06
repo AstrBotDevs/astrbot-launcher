@@ -57,34 +57,9 @@ fn format_locking_process(process: &LockingProcessInfo) -> String {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn query_lock_details(target_files: &[PathBuf]) -> Vec<String> {
-    let mut lock_details = Vec::new();
-
-    for target_file in target_files {
-        let Ok(processes) = get_processes_locking_files(std::slice::from_ref(target_file)) else {
-            continue;
-        };
-        if processes.is_empty() {
-            continue;
-        }
-
-        let process_items = processes
-            .iter()
-            .map(format_locking_process)
-            .collect::<Vec<_>>();
-
-        lock_details.push(format!(
-            "{} <- {}",
-            target_file.display(),
-            process_items.join("、")
-        ));
-    }
-
-    lock_details
-}
-
 /// Ensure target files are not locked by other processes before mutating.
+///
+/// Single batch Restart Manager query for all files.
 #[cfg(target_os = "windows")]
 pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
     let locking_processes = get_processes_locking_files(target_files).map_err(|e| {
@@ -95,18 +70,11 @@ pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
         return Ok(());
     }
 
-    let lock_details = query_lock_details(target_files);
-    let process_items = locking_processes
-        .into_iter()
-        .map(|process| format_locking_process(&process))
-        .collect::<Vec<_>>();
-    let process_summary = process_items.join("；");
-    let log_detail = if lock_details.is_empty() {
-        process_summary
-    } else {
-        lock_details.join("；")
-    };
-    log::warn!("Target files are locked: {}", log_detail);
+    let process_items: Vec<String> = locking_processes
+        .iter()
+        .map(format_locking_process)
+        .collect();
+    log::warn!("Target files are locked by: {}", process_items.join("；"));
     Err(AppError::process_locking(
         "目标路径被占用，请关闭相关进程后重试，请前往日志页面查看详情。",
     ))
