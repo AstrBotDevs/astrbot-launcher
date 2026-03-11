@@ -17,21 +17,17 @@ export default function About() {
   }, []);
 
   const handleCheckUpdate = async () => {
-    try {
-      await checkForUpdate();
-      const state = useUpdateStore.getState();
-      if (!state.hasUpdate) {
-        message.success('已是最新版本');
-      }
-    } catch {
+    const success = await checkForUpdate();
+    if (!success) {
       message.error('检查更新失败');
+    } else if (!useUpdateStore.getState().hasUpdate) {
+      message.success('已是最新版本');
     }
   };
 
   const handleInstallUpdate = async () => {
-    try {
-      await installUpdate();
-    } catch {
+    const success = await installUpdate();
+    if (!success) {
       message.error('更新安装失败');
     }
   };

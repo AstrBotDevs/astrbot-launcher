@@ -8,8 +8,8 @@ interface UpdateState {
   releaseNotes: string;
   checking: boolean;
   installing: boolean;
-  checkForUpdate: () => Promise<void>;
-  installUpdate: () => Promise<void>;
+  checkForUpdate: () => Promise<boolean>;
+  installUpdate: () => Promise<boolean>;
 }
 
 let cachedUpdate: Update | null = null;
@@ -22,7 +22,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   installing: false,
 
   checkForUpdate: async () => {
-    if (get().checking) return;
+    if (get().checking) return false;
     set({ checking: true });
     try {
       const update = await check();
@@ -37,25 +37,27 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         cachedUpdate = null;
         set({ hasUpdate: false, newVersion: '', releaseNotes: '' });
       }
+      return true;
     } catch (e) {
       cachedUpdate = null;
       set({ hasUpdate: false, newVersion: '', releaseNotes: '' });
       console.error('Update check failed:', e);
-      throw e;
+      return false;
     } finally {
       set({ checking: false });
     }
   },
 
   installUpdate: async () => {
-    if (!cachedUpdate) return;
+    if (!cachedUpdate) return false;
     set({ installing: true });
     try {
       await cachedUpdate.downloadAndInstall();
       await relaunch();
+      return true;
     } catch (e) {
       console.error('Update install failed:', e);
-      throw e;
+      return false;
     } finally {
       set({ installing: false });
     }
