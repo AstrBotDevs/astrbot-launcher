@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect } from 'react';
-import { Layout, Menu, ConfigProvider, App as AntdApp, theme } from 'antd';
+import { Badge, Layout, Menu, ConfigProvider, App as AntdApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import {
   DesktopOutlined,
@@ -8,24 +8,28 @@ import {
   SaveOutlined,
   FileTextOutlined,
   ToolOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { ErrorBoundary, TitleBar } from './components';
 import { AntdStaticProvider } from './antdStatic';
-import { useAppStore, initEventListeners, cleanupEventListeners } from './stores';
+import { useAppStore, useUpdateStore, initEventListeners, cleanupEventListeners } from './stores';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Versions = lazy(() => import('./pages/Versions'));
 const Backup = lazy(() => import('./pages/Backup'));
 const Logs = lazy(() => import('./pages/Logs'));
 const Advanced = lazy(() => import('./pages/Advanced'));
+const About = lazy(() => import('./pages/About'));
 const WebUIView = lazy(() => import('./pages/WebUIView'));
 import './App.css';
 
 const { Sider, Content } = Layout;
+const UPDATE_INTERVAL_MS = 16 * 60 * 60 * 1000;
 
 function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
+  const hasUpdate = useUpdateStore((s) => s.hasUpdate);
 
   useEffect(() => {
     void reloadSnapshot();
@@ -57,6 +61,15 @@ function AppLayout() {
       icon: <ToolOutlined />,
       label: '高级',
     },
+    {
+      key: '/about',
+      icon: <InfoCircleOutlined />,
+      label: (
+        <Badge dot={hasUpdate} offset={[6, 0]}>
+          关于
+        </Badge>
+      ),
+    },
   ];
 
   return (
@@ -87,6 +100,7 @@ function AppLayout() {
                 <Route path="/backup" element={<Backup />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/advanced" element={<Advanced />} />
+                <Route path="/about" element={<About />} />
               </Routes>
             </ErrorBoundary>
           </Content>
@@ -100,9 +114,15 @@ function App({ isMacOS }: { isMacOS: boolean }) {
   useEffect(() => {
     void initEventListeners();
     void useAppStore.getState().reloadSnapshot();
+    void useUpdateStore.getState().checkForUpdate();
+
+    const timer = setInterval(() => {
+      void useUpdateStore.getState().checkForUpdate();
+    }, UPDATE_INTERVAL_MS);
 
     return () => {
       cleanupEventListeners();
+      clearInterval(timer);
     };
   }, []);
 

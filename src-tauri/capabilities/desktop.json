@@ -13,6 +13,6 @@
     "window-state:default",
     "autostart:default",
     "updater:default",
-    "dialog:default"
+    "process:default"
   ]
 }

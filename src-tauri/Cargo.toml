@@ -44,7 +44,8 @@ portpicker = "0.1.1"
 walkdir = "2.5.0"
 semver = "1"
 tauri-plugin-log = { version = "2", features = ["colored"] }
-tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 libc = "0.2.182"

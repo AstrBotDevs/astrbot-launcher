@@ -5,8 +5,8 @@ use webkit2gtk::{HardwareAccelerationPolicy, SettingsExt as _, WebViewExt as _};
 
 use crate::commands::{self, AppState};
 use crate::config::{load_config, load_manifest, with_manifest_mut};
+use crate::tray;
 use crate::utils::log_bus as log_channel;
-use crate::{tray, updater};
 
 pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
@@ -26,7 +26,6 @@ pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error:
     let state: tauri::State<'_, AppState> = app.state();
     state.process_manager.start_monitor();
 
-    updater::spawn_check(app.handle().clone());
     spawn_event_forwarder(app);
     spawn_log_forwarder(app);
     tray::build_tray(app)?;
