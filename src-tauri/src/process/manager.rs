@@ -171,9 +171,12 @@ impl ProcessManager {
     pub fn start_monitor(&self) {
         let monitor_state = Arc::clone(&self.state);
         let monitor_events = self.runtime_events.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(super::MONITOR_INTERVAL);
-            monitor::poll_instances(&monitor_state, &monitor_events);
+        tauri::async_runtime::spawn(async move {
+            let mut interval = tokio::time::interval(super::MONITOR_INTERVAL);
+            loop {
+                interval.tick().await;
+                monitor::poll_instances(&monitor_state, &monitor_events);
+            }
         });
     }
 
