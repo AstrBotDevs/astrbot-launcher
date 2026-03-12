@@ -83,7 +83,10 @@ pub fn run() {
                 utils::net::build_http_client_with_proxy(proxy)
             })()
             .unwrap_or_else(|e| {
-                log::warn!("Failed to initialize configured proxy client: {}", e);
+                log::warn!(
+                    "Failed to initialize HTTP client with proxy settings, falling back to default client: {}",
+                    e
+                );
                 Client::builder()
                     .timeout(Duration::from_secs(30))
                     .build()
