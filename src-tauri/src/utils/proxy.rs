@@ -344,14 +344,9 @@ fn ensure_supported_proxy_scheme(url: &str) -> Result<()> {
 }
 
 fn first_env_value(slot: ProxyEnvSlot) -> Option<String> {
-    let keys: &[&str] = match slot {
-        ProxyEnvSlot::All => &["ALL_PROXY", "all_proxy"],
-        ProxyEnvSlot::Http => &["HTTP_PROXY", "http_proxy"],
-        ProxyEnvSlot::Https => &["HTTPS_PROXY", "https_proxy"],
-        ProxyEnvSlot::No => &["NO_PROXY", "no_proxy"],
-    };
-
-    keys.iter()
-        .find_map(|key| env::var(key).ok())
+    PROXY_ENV_SLOTS
+        .iter()
+        .find(|(candidate, _)| *candidate == slot)
+        .and_then(|(_, keys)| keys.iter().find_map(|key| env::var(key).ok()))
         .and_then(|value| normalize_opt_string(Some(value)))
 }
