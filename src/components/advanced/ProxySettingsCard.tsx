@@ -9,6 +9,7 @@ interface ProxySettingsCardProps {
   proxySaving: boolean;
   proxyCanSave: boolean;
   proxyError: string | null;
+  disabled: boolean;
   onProxyUrlChange: (value: string) => void;
   onProxyPortChange: (value: string) => void;
   onProxyUsernameChange: (value: string) => void;
@@ -24,6 +25,7 @@ export function ProxySettingsCard({
   proxySaving,
   proxyCanSave,
   proxyError,
+  disabled,
   onProxyUrlChange,
   onProxyPortChange,
   onProxyUsernameChange,
@@ -31,10 +33,19 @@ export function ProxySettingsCard({
   onSaveProxy,
 }: ProxySettingsCardProps) {
   return (
-    <Card title="代理" size="small" style={{ marginBottom: 16 }}>
-      <Form layout="vertical">
+    <Card
+      title="代理"
+      size="small"
+      style={{ marginBottom: 16, opacity: disabled ? 0.7 : 1 }}
+      extra={disabled ? '已由中国大陆一键加速接管' : undefined}
+    >
+      <Form layout="vertical" disabled={disabled}>
         <Form.Item
-          extra="支持 HTTP / HTTPS / SOCKS5，留空保存后会回退到环境变量代理或系统代理"
+          extra={
+            disabled
+              ? '中国大陆一键加速开启时，此处配置仅展示已保存内容，不参与实际下载。'
+              : '支持 HTTP / HTTPS / SOCKS5，留空保存后会回退到环境变量代理或系统代理'
+          }
           validateStatus={proxyError ? 'error' : undefined}
           help={proxyError ?? undefined}
         >
@@ -42,11 +53,13 @@ export function ProxySettingsCard({
             <Space.Compact style={{ width: '100%' }}>
               <Input
                 value={proxyUrl}
+                disabled={disabled}
                 onChange={(e) => onProxyUrlChange(e.target.value)}
                 placeholder="例如: socks5://127.0.0.1"
               />
               <InputNumber
                 value={proxyPort ? Number(proxyPort) : null}
+                disabled={disabled}
                 min={1}
                 max={65535}
                 precision={0}
@@ -59,7 +72,7 @@ export function ProxySettingsCard({
               <Button
                 icon={<SaveOutlined />}
                 loading={proxySaving}
-                disabled={!proxyCanSave}
+                disabled={disabled || !proxyCanSave}
                 onClick={() => void onSaveProxy()}
               >
                 保存
@@ -68,12 +81,14 @@ export function ProxySettingsCard({
             <Space style={{ width: '100%' }} size={8}>
               <Input
                 value={proxyUsername}
+                disabled={disabled}
                 onChange={(e) => onProxyUsernameChange(e.target.value)}
                 placeholder="用户名（可选）"
                 style={{ flex: 1 }}
               />
               <Input.Password
                 value={proxyPassword}
+                disabled={disabled}
                 onChange={(e) => onProxyPasswordChange(e.target.value)}
                 placeholder="密码（可选）"
                 style={{ flex: 1 }}

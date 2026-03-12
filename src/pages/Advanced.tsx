@@ -240,7 +240,7 @@ export default function Advanced() {
       validationError: npmRegistryError,
       isDirty: npmRegistryDirty,
       save: api.saveNpmRegistry,
-      successMessage: 'npm 注册源已保存',
+      successMessage: 'npm 镜像源已保存',
     },
   };
 
@@ -294,6 +294,15 @@ export default function Advanced() {
         handleApiError(error);
         await reloadSnapshot();
       },
+    });
+  };
+
+  const handleMainlandAccelerationChange = async (checked: boolean) => {
+    await handleSaveSetting({
+      key: OPERATION_KEYS.advancedSaveMainlandAcceleration,
+      save: () => api.saveMainlandAcceleration(checked),
+      successMessage: '设置已保存',
+      reloadBefore: true,
     });
   };
 
@@ -379,6 +388,9 @@ export default function Advanced() {
   const runningInstances = instances.filter((i) => i.state !== 'stopped');
   const uvInstalled = components.some((c) => c.id === 'uv' && c.installed);
   const useUvSaving = operations[OPERATION_KEYS.advancedSaveUseUvForDeps] || false;
+  const mainlandAccelerationSaving =
+    operations[OPERATION_KEYS.advancedSaveMainlandAcceleration] || false;
+  const mainlandAccelerationEnabled = config?.mainland_acceleration ?? false;
   const clearDataLoading = selectedDataInstance
     ? operations[OPERATION_KEYS.advancedClearData(selectedDataInstance)] || false
     : false;
@@ -447,11 +459,13 @@ export default function Advanced() {
         autostart={autostart}
         uvInstalled={uvInstalled}
         useUvSaving={useUvSaving}
+        mainlandAccelerationSaving={mainlandAccelerationSaving}
         onCloseToTrayChange={handleCloseToTrayChange}
         onCheckInstanceUpdateChange={handleCheckInstanceUpdateChange}
         onPersistInstanceStateChange={handlePersistInstanceStateChange}
         onAutostartChange={handleAutostartChange}
         onUseUvForDepsChange={handleUseUvForDepsChange}
+        onMainlandAccelerationChange={handleMainlandAccelerationChange}
       />
 
       <ProxySettingsCard
@@ -462,6 +476,7 @@ export default function Advanced() {
         proxySaving={proxySaving}
         proxyCanSave={proxyCanSave}
         proxyError={proxyError}
+        disabled={mainlandAccelerationEnabled}
         onProxyUrlChange={setProxyUrl}
         onProxyPortChange={setProxyPort}
         onProxyUsernameChange={setProxyUsername}
@@ -486,6 +501,7 @@ export default function Advanced() {
         pypiMirrorError={pypiMirrorError}
         nodejsMirrorError={nodejsMirrorError}
         npmRegistryError={npmRegistryError}
+        disabled={mainlandAccelerationEnabled}
         onGithubProxyChange={setGithubProxy}
         onPypiMirrorChange={setPypiMirror}
         onNodejsMirrorChange={setNodejsMirror}

@@ -6,11 +6,13 @@ interface GeneralSettingsCardProps {
   autostart: boolean;
   uvInstalled: boolean;
   useUvSaving: boolean;
+  mainlandAccelerationSaving: boolean;
   onCloseToTrayChange: (value: string) => void;
   onCheckInstanceUpdateChange: (checked: boolean) => void;
   onPersistInstanceStateChange: (checked: boolean) => void;
   onAutostartChange: (checked: boolean) => void;
   onUseUvForDepsChange: (checked: boolean) => void;
+  onMainlandAccelerationChange: (checked: boolean) => void;
 }
 
 export function GeneralSettingsCard({
@@ -18,11 +20,13 @@ export function GeneralSettingsCard({
   autostart,
   uvInstalled,
   useUvSaving,
+  mainlandAccelerationSaving,
   onCloseToTrayChange,
   onCheckInstanceUpdateChange,
   onPersistInstanceStateChange,
   onAutostartChange,
   onUseUvForDepsChange,
+  onMainlandAccelerationChange,
 }: GeneralSettingsCardProps) {
   return (
     <Card title="通用" size="small" style={{ marginBottom: 16 }}>
@@ -55,6 +59,16 @@ export function GeneralSettingsCard({
         </Form.Item>
         <Form.Item label="开机自启动" extra="开启后系统启动时自动运行 AstrBot Launcher">
           <Switch checked={autostart} onChange={onAutostartChange} />
+        </Form.Item>
+        <Form.Item
+          label="中国大陆一键加速"
+          extra="适用于中国大陆网络环境。开启后使用内置加速配置，并禁用下方代理和源设置。"
+        >
+          <Switch
+            checked={config?.mainland_acceleration ?? false}
+            onChange={onMainlandAccelerationChange}
+            loading={mainlandAccelerationSaving}
+          />
         </Form.Item>
         <Form.Item
           label="使用 UV 安装依赖"

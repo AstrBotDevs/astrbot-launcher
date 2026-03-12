@@ -9,10 +9,10 @@ use crate::archive::ArchiveFormat;
 use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
 use crate::github::fetch_python_releases;
+use crate::network_config;
 use crate::platform::find_python_asset_for_version;
-use crate::utils::index_url::{normalize_default_index, wrap_with_proxy};
+use crate::utils::net::{ensure_success_status, send_get};
 use crate::utils::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
-use crate::utils::proxy;
 
 const RUNTIME_PY310: &str = "py310";
 const RUNTIME_PY312: &str = "py312";
@@ -105,9 +105,9 @@ pub async fn pip_install_requirements(
         .to_str()
         .ok_or_else(|| AppError::io("requirements.txt path is not valid UTF-8"))?
         .to_string();
-    let default_index = normalize_default_index(&config.pypi_mirror);
+    let default_index = network_config::default_index(config);
     let new_path = crate::component::build_instance_path(venv_python, config.ignore_external_path)?;
-    let proxy_env_vars = match proxy::build_proxy_env_vars(config) {
+    let proxy_env_vars = match network_config::proxy_env_vars(config) {
         Ok(vars) => vars,
         Err(e) => {
             log::warn!("Failed to prepare proxy env for pip install: {}", e);
@@ -126,7 +126,7 @@ pub async fn pip_install_requirements(
         .arg(&default_index)
         .env("PATH", new_path)
         .env_remove("PYTHONHOME");
-    proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
+    crate::utils::proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
 
     #[cfg(target_os = "windows")]
     {
@@ -231,28 +231,29 @@ async fn install_python_version(
     target_dir: &std::path::Path,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
-    let releases = fetch_python_releases(client).await?;
-
-    let mut download_url = None;
-    let mut python_version = String::new();
-
-    for release in &releases {
-        if let Ok((url, version)) = find_python_asset_for_version(&release.assets, major_version) {
-            download_url = Some(url);
-            python_version = version;
-            break;
+    let (url, python_version) = match load_config() {
+        Ok(config) if network_config::mainland_acceleration(config.as_ref()) => {
+            let asset_names = fetch_mainland_python_asset_names(client).await?;
+            let (asset_name, version) =
+                find_mainland_python_asset_for_version(&asset_names, major_version)?;
+            let download_url =
+                network_config::build_mainland_python_asset_download_url(&asset_name);
+            (download_url, version)
         }
-    }
+        Ok(config) => {
+            let (github_url, python_version) =
+                find_github_python_asset(client, major_version).await?;
 
-    let mut url = download_url.ok_or_else(|| {
-        AppError::python(format!(
-            "No Python {} build found for current platform",
-            major_version
-        ))
-    })?;
-    if let Ok(config) = load_config() {
-        url = wrap_with_proxy(&config.github_proxy, &url);
-    }
+            (
+                network_config::build_github_python_asset_download_url(
+                    config.as_ref(),
+                    &github_url,
+                ),
+                python_version,
+            )
+        }
+        Err(_) => find_github_python_asset(client, major_version).await?,
+    };
 
     let archive_path = target_dir.join("python.tar.gz");
     install_from_archive_with_progress(
@@ -275,4 +276,140 @@ async fn install_python_version(
     }
 
     Ok(python_version)
+}
+
+async fn find_github_python_asset(
+    client: &Client,
+    major_version: &str,
+) -> Result<(String, String)> {
+    let releases = fetch_python_releases(client).await?;
+
+    for release in &releases {
+        if let Ok((url, version)) = find_python_asset_for_version(&release.assets, major_version) {
+            return Ok((url, version));
+        }
+    }
+
+    Err(AppError::python(format!(
+        "No Python {} build found for current platform",
+        major_version
+    )))
+}
+
+async fn fetch_mainland_python_asset_names(client: &Client) -> Result<Vec<String>> {
+    let url = network_config::MAINLAND_PYTHON_BUILD_STANDALONE_BASE;
+    let resp = send_get(client, url, false)
+        .await
+        .map_err(|e| AppError::network(e.to_string()))?;
+    ensure_success_status(&resp, AppError::network)?;
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| AppError::network(format!("Failed to read response: {}", e)))?;
+
+    let mut asset_names = Vec::new();
+
+    for marker in ["href=\"", "href='"] {
+        let mut rest = body.as_str();
+        let quote = marker.chars().last().unwrap_or('"');
+
+        while let Some(start) = rest.find(marker) {
+            let fragment = &rest[start + marker.len()..];
+            let Some(end) = fragment.find(quote) else {
+                break;
+            };
+            push_python_asset_candidate(&mut asset_names, &fragment[..end]);
+            rest = &fragment[end + 1..];
+        }
+    }
+
+    if asset_names.is_empty() {
+        for token in body.split_whitespace() {
+            push_python_asset_candidate(&mut asset_names, token);
+        }
+    }
+
+    if asset_names.is_empty() {
+        return Err(AppError::python("Failed to parse python mirror asset list"));
+    }
+
+    Ok(asset_names)
+}
+
+fn push_python_asset_candidate(asset_names: &mut Vec<String>, candidate: &str) {
+    let trimmed = candidate
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim_matches('/');
+    if trimmed.is_empty() || trimmed.starts_with('?') || trimmed.starts_with('#') {
+        return;
+    }
+
+    let Some(name) = trimmed.rsplit('/').next() else {
+        return;
+    };
+    let decoded_name = decode_url_path_segment(name);
+
+    if !decoded_name.ends_with(".tar.gz") || asset_names.iter().any(|item| item == &decoded_name) {
+        return;
+    }
+
+    asset_names.push(decoded_name);
+}
+
+fn find_mainland_python_asset_for_version(
+    asset_names: &[String],
+    major_version: &str,
+) -> Result<(String, String)> {
+    let arch_target = crate::platform::get_python_arch_target().map_err(AppError::python)?;
+    let pattern_prefix = format!("cpython-{}", major_version);
+    let pattern_suffix = format!("{}-install_only_stripped.tar.gz", arch_target);
+
+    for asset_name in asset_names {
+        if asset_name.starts_with(&pattern_prefix) && asset_name.ends_with(&pattern_suffix) {
+            let version = asset_name
+                .strip_prefix("cpython-")
+                .and_then(|s| s.split('+').next())
+                .unwrap_or(major_version);
+            return Ok((asset_name.clone(), version.to_string()));
+        }
+    }
+
+    Err(AppError::python(format!(
+        "No Python {} asset found in mainland mirror for current platform",
+        major_version
+    )))
+}
+
+fn decode_url_path_segment(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hi = hex_value(bytes[index + 1]);
+            let lo = hex_value(bytes[index + 2]);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                decoded.push((hi << 4) | lo);
+                index += 3;
+                continue;
+            }
+        }
+
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }

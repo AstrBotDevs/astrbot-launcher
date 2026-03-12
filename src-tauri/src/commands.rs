@@ -15,13 +15,13 @@ use crate::download;
 use crate::error::{AppError, Result};
 use crate::github::{self, GitHubRelease};
 use crate::instance::{self, InstanceStatus};
+use crate::network_config;
 use crate::platform;
 use crate::process::ProcessManager;
 use crate::utils::index_url::normalize_default_index;
 use crate::utils::net::{build_http_client_with_proxy, check_url};
 use crate::utils::proxy::{
-    build_single_url_proxy_settings, resolve_proxy_with_fallbacks, ProxyFields, ProxySource,
-    DEFAULT_NO_PROXY_VALUE,
+    build_single_url_proxy_settings, ProxyFields, ProxySource, DEFAULT_NO_PROXY_VALUE,
 };
 use crate::utils::sync::{read_lock_recover, write_lock_recover};
 
@@ -180,22 +180,15 @@ pub async fn save_proxy(
         ));
     }
 
-    // Build the client with proxy priority: app config > environment > system > no proxy.
-    let client = build_http_client_with_proxy(resolve_proxy_with_fallbacks(configured_proxy))?;
+    let next_client = with_config_mut(move |config| {
+        config.proxy_url = proxy_fields.url.clone();
+        config.proxy_port = proxy_fields.port.clone();
+        config.proxy_username = proxy_fields.username.clone();
+        config.proxy_password = proxy_fields.password.clone();
+        network_config::build_http_client_from_config(config)
+    })?;
 
-    let previous_client = state.client();
-    state.replace_client(client);
-
-    if let Err(error) = with_config_mut(move |config| {
-        config.proxy_url = proxy_fields.url;
-        config.proxy_port = proxy_fields.port;
-        config.proxy_username = proxy_fields.username;
-        config.proxy_password = proxy_fields.password;
-        Ok(())
-    }) {
-        state.replace_client(previous_client);
-        return Err(error);
-    }
+    state.replace_client(next_client);
 
     Ok(())
 }
@@ -224,6 +217,20 @@ pub async fn save_pypi_mirror(pypi_mirror: String, state: State<'_, AppState>) -
 define_save_config_command!(save_close_to_tray, close_to_tray: bool, close_to_tray);
 define_save_config_command!(save_nodejs_mirror, nodejs_mirror: String, nodejs_mirror);
 define_save_config_command!(save_npm_registry, npm_registry: String, npm_registry);
+
+#[tauri::command]
+pub async fn save_mainland_acceleration(
+    mainland_acceleration: bool,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let next_client = with_config_mut(move |config| {
+        config.mainland_acceleration = mainland_acceleration;
+        network_config::build_http_client_from_config(config)
+    })?;
+
+    state.replace_client(next_client);
+    Ok(())
+}
 
 #[tauri::command]
 pub async fn save_use_uv_for_deps(use_uv_for_deps: bool) -> Result<()> {

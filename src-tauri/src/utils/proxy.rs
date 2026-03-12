@@ -338,9 +338,9 @@ fn ensure_supported_proxy_scheme(url: &str) -> Result<()> {
         return Ok(());
     }
 
-    Err(AppError::config(format!(
-        "代理地址仅支持 http/https/socks/socks4/socks4a/socks5/socks5h 协议"
-    )))
+    Err(AppError::config(
+        "代理地址仅支持 http/https/socks/socks4/socks4a/socks5/socks5h 协议".to_string(),
+    ))
 }
 
 fn first_env_value(slot: ProxyEnvSlot) -> Option<String> {

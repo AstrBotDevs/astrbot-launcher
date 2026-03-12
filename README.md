@@ -31,6 +31,12 @@ AstrBot Launcher是一款用于图形化管理AstrBot的桌面应用程序，提
 > [!important]
 > 请确保已升级到最新版本。
 
+### 下载太慢/网络错误
+
+请点击软件页面最左边的“高级”并按需配置代理或源。如果对“代理”、“源”等概念感到陌生，打开“中国大陆一键加速”通常能够解决绝大部分问题。
+
+![Mainland Acceleration](https://pic1.imgdb.cn/item/69b276c8cda91d5fbafff6d8.png)
+
 ### DLL加载失败（常见于Windows ARM64）
 
 ```text
@@ -58,7 +64,7 @@ missing RECORD file
 
 **解决方案：**
 
-1. 打开：设置 → 高级
+1. 点击软件页面最左边的“高级”
 2. 向下滚动至故障排除
 3. 选择对应实例
 4. 点击执行清空虚拟环境
@@ -85,6 +91,22 @@ Access is denied
 - PowerToys 0.64及以上版本内置的Locksmith
 
 鉴于本项目无法对其他第三方解锁工具的安全性作出保证，故不在此处列举更多相关软件。
+
+## 中国大陆一键加速使用的镜像与服务
+
+当用户在“高级设置 -> 通用”中开启“中国大陆一键加速”后，启动器会忽略手动填写的代理和源设置，并改用以下预设地址：
+
+- npm 镜像源：<https://npmreg.proxy.ustclug.org/>
+- Node.js 下载镜像：<https://mirrors.ustc.edu.cn/node/>
+- PyPI 镜像源：<https://mirrors.ustc.edu.cn/pypi/>
+- `astral-sh/python-build-standalone` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/>
+- `astral-sh/uv` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/>
+- AstrBot Release 下载加速代理： <https://gh-proxy.com>
+
+感谢上述镜像与服务的维护者持续向公众提供可用的基础设施与网络服务，为开源软件分发、依赖安装和版本获取带来了切实帮助。
+
+> [!note]
+> 如果相关镜像源或服务的维护者认为本项目不应内置上述某个地址，请提出Issue并明确说明诉求，我们会及时进行处理。
 
 ## 技术栈
 

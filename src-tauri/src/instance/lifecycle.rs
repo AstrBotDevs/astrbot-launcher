@@ -16,11 +16,11 @@ use super::deploy::{deploy_instance, emit_progress};
 use crate::component;
 use crate::config::{load_config, load_manifest};
 use crate::error::{AppError, Result};
+use crate::network_config;
 use crate::process::{
     can_signal_expected_process, check_port_available, find_available_port, force_kill,
     graceful_shutdown, is_expected_process_alive, resolve_process_executable_path,
 };
-use crate::utils::index_url::normalize_default_index;
 use crate::utils::log_bus as log_channel;
 use crate::utils::paths::{
     get_instance_core_dir, get_instance_venv_dir, get_uv_cache_dir, get_venv_python,
@@ -114,8 +114,8 @@ pub async fn launch_instance(
         .instances
         .get(instance_id)
         .ok_or_else(|| AppError::instance_not_found(instance_id))?;
-    let default_index = normalize_default_index(&config.pypi_mirror);
-    let proxy_env_vars = match proxy::build_proxy_env_vars(&config) {
+    let default_index = network_config::default_index(config.as_ref());
+    let proxy_env_vars = match network_config::proxy_env_vars(config.as_ref()) {
         Ok(vars) => vars,
         Err(e) => {
             log::warn!(

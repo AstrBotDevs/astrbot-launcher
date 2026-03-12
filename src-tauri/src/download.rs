@@ -8,7 +8,7 @@ use tauri::{AppHandle, Emitter as _};
 
 use crate::config::{with_manifest_mut, InstalledVersion};
 use crate::error::{AppError, Result};
-use crate::github::{get_source_archive_url, GitHubRelease};
+use crate::github::{get_source_archive_urls, GitHubRelease};
 use crate::utils::net::{ensure_success_status, send_get};
 use crate::utils::paths::get_versions_dir;
 use crate::validation::resolve_version_zip_path;
@@ -81,6 +81,41 @@ pub async fn download_file(
     }
 
     result
+}
+
+pub async fn download_file_with_fallbacks(
+    client: &Client,
+    urls: &[String],
+    dest: &Path,
+    opts: Option<&DownloadOptions<'_>>,
+) -> Result<()> {
+    let mut last_error = None;
+
+    for (index, url) in urls.iter().enumerate() {
+        if index > 0 {
+            log::warn!("Retrying download with fallback URL: {}", url);
+            if let Some(o) = opts {
+                emit_download_progress(
+                    o,
+                    0,
+                    None,
+                    None,
+                    "downloading",
+                    "加速下载失败，正在回退直连",
+                );
+            }
+        }
+
+        match download_file(client, url, dest, opts).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                log::warn!("Download failed for {}: {}", url, error);
+                last_error = Some(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| AppError::network("没有可用的下载地址".to_string())))
 }
 
 async fn download_file_inner(
@@ -179,8 +214,8 @@ pub async fn download_version(
         id: version,
     });
 
-    let core_archive_url = get_source_archive_url(version);
-    download_file(client, &core_archive_url, &zip_path, opts.as_ref()).await?;
+    let core_archive_urls = get_source_archive_urls(version);
+    download_file_with_fallbacks(client, &core_archive_urls, &zip_path, opts.as_ref()).await?;
 
     if let Some(o) = &opts {
         let size = std::fs::metadata(&zip_path).map(|m| m.len()).ok();

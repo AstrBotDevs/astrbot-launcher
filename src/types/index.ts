@@ -12,6 +12,7 @@ export interface AppError {
 // ========================================
 
 export interface AppConfig {
+  mainland_acceleration: boolean;
   github_proxy: string;
   proxy_url: string;
   proxy_port: string;
