@@ -96,4 +96,4 @@ export function validateNodejsMirror(value: string): string | null {
 }
 
 export const validateNpmRegistry = (value: string) =>
-  validateUrlWithProtocols(value, HTTP_PROTOCOLS, 'npm 注册源');
+  validateUrlWithProtocols(value, HTTP_PROTOCOLS, 'npm 镜像源');

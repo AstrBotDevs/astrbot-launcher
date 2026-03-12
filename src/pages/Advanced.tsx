@@ -240,7 +240,7 @@ export default function Advanced() {
       validationError: npmRegistryError,
       isDirty: npmRegistryDirty,
       save: api.saveNpmRegistry,
-      successMessage: 'npm 注册源已保存',
+      successMessage: 'npm 镜像源已保存',
     },
   };
 
