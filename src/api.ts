@@ -31,6 +31,8 @@ export const api = {
     invoke<void>('save_persist_instance_state', { persistInstanceState }),
   saveIgnoreExternalPath: (ignoreExternalPath: boolean) =>
     invoke<void>('save_ignore_external_path', { ignoreExternalPath }),
+  saveMainlandAcceleration: (mainlandAcceleration: boolean) =>
+    invoke<void>('save_mainland_acceleration', { mainlandAcceleration }),
 
   // ========================================
   // Components

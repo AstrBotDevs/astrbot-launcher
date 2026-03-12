@@ -8,6 +8,7 @@ use super::common::install_from_archive_with_progress;
 use crate::archive::ArchiveFormat;
 use crate::config::load_config;
 use crate::error::{AppError, Result};
+use crate::network_config;
 use crate::platform::get_nodejs_os_arch;
 use crate::utils::net::fetch_json;
 use crate::utils::paths::{
@@ -103,11 +104,11 @@ pub fn build_nodejs_env_vars() -> Vec<(OsString, OsString)> {
     );
 
     if let Ok(config) = load_config() {
-        if !config.npm_registry.is_empty() {
+        if let Some(npm_registry) = network_config::npm_registry(config.as_ref()) {
             push_both(
                 "NPM_CONFIG_REGISTRY",
                 "npm_config_registry",
-                OsStr::new(&config.npm_registry),
+                OsStr::new(&npm_registry),
             );
         }
     }
@@ -135,10 +136,8 @@ async fn do_install_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> R
 
     // Determine mirror URL
     let mirror = match load_config() {
-        Ok(config) if !config.nodejs_mirror.is_empty() => {
-            config.nodejs_mirror.trim_end_matches('/').to_string()
-        }
-        _ => "https://nodejs.org/dist".to_string(),
+        Ok(config) => network_config::nodejs_mirror_root(config.as_ref()),
+        Err(_) => "https://nodejs.org/dist".to_string(),
     };
 
     // Fetch version index and find latest LTS

@@ -18,6 +18,7 @@ interface SourceSettingsCardProps {
   pypiMirrorError: string | null;
   nodejsMirrorError: string | null;
   npmRegistryError: string | null;
+  disabled: boolean;
   onGithubProxyChange: (value: string) => void;
   onPypiMirrorChange: (value: string) => void;
   onNodejsMirrorChange: (value: string) => void;
@@ -36,6 +37,7 @@ interface SourceInputRowProps {
   loading: boolean;
   canSave: boolean;
   error: string | null;
+  disabled: boolean;
   onChange: (value: string) => void;
   onSave: () => Promise<void>;
 }
@@ -48,6 +50,7 @@ function SourceInputRow({
   loading,
   canSave,
   error,
+  disabled,
   onChange,
   onSave,
 }: SourceInputRowProps) {
@@ -59,11 +62,16 @@ function SourceInputRow({
       help={error ?? undefined}
     >
       <Space.Compact style={{ width: '100%' }}>
-        <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+        <Input
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
         <Button
           icon={<SaveOutlined />}
           loading={loading}
-          disabled={!canSave}
+          disabled={disabled || !canSave}
           onClick={() => void onSave()}
         >
           保存
@@ -90,6 +98,7 @@ export function SourceSettingsCard({
   pypiMirrorError,
   nodejsMirrorError,
   npmRegistryError,
+  disabled,
   onGithubProxyChange,
   onPypiMirrorChange,
   onNodejsMirrorChange,
@@ -100,16 +109,26 @@ export function SourceSettingsCard({
   onSaveNpmRegistry,
 }: SourceSettingsCardProps) {
   return (
-    <Card title="源" size="small" style={{ marginBottom: 16 }}>
-      <Form layout="vertical">
+    <Card
+      title="源"
+      size="small"
+      style={{ marginBottom: 16, opacity: disabled ? 0.7 : 1 }}
+      extra={disabled ? '已由中国大陆一键加速接管' : undefined}
+    >
+      <Form layout="vertical" disabled={disabled}>
         <SourceInputRow
           label="GitHub 代理"
-          extra="用于加速 GitHub API 和文件下载，留空使用官方地址"
+          extra={
+            disabled
+              ? '中国大陆一键加速开启时，此处配置仅展示已保存内容，不参与实际下载。'
+              : '用于加速 GitHub API 和文件下载，留空使用官方地址'
+          }
           value={githubProxy}
           placeholder="例如: https://cdn.gh-proxy.org"
           loading={githubSaving}
           canSave={githubProxyCanSave}
           error={githubProxyError}
+          disabled={disabled}
           onChange={onGithubProxyChange}
           onSave={onSaveGithubProxy}
         />
@@ -121,6 +140,7 @@ export function SourceSettingsCard({
           loading={pypiSaving}
           canSave={pypiMirrorCanSave}
           error={pypiMirrorError}
+          disabled={disabled}
           onChange={onPypiMirrorChange}
           onSave={onSavePypiMirror}
         />
@@ -132,6 +152,7 @@ export function SourceSettingsCard({
           loading={nodejsMirrorSaving}
           canSave={nodejsMirrorCanSave}
           error={nodejsMirrorError}
+          disabled={disabled}
           onChange={onNodejsMirrorChange}
           onSave={onSaveNodejsMirror}
         />
@@ -143,6 +164,7 @@ export function SourceSettingsCard({
           loading={npmRegistrySaving}
           canSave={npmRegistryCanSave}
           error={npmRegistryError}
+          disabled={disabled}
           onChange={onNpmRegistryChange}
           onSave={onSaveNpmRegistry}
         />

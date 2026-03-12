@@ -20,6 +20,8 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct LegacyAppConfig {
     #[serde(default)]
+    mainland_acceleration: bool,
+    #[serde(default)]
     instances: HashMap<String, InstanceConfig>,
     #[serde(default)]
     installed_versions: Vec<InstalledVersion>,
@@ -56,6 +58,7 @@ struct LegacyAppConfig {
 impl LegacyAppConfig {
     fn into_config(self) -> AppConfig {
         AppConfig {
+            mainland_acceleration: self.mainland_acceleration,
             github_proxy: self.github_proxy,
             proxy_url: self.proxy_url,
             proxy_port: self.proxy_port,

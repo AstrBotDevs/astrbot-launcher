@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::load_config;
 use crate::error::Result;
+use crate::network_config;
 use crate::utils::index_url::wrap_with_proxy;
 use crate::utils::net::fetch_json;
 use crate::utils::paths::{ensure_data_dirs, version_list_cache_path};
@@ -106,7 +107,7 @@ fn save_releases_cache_to_disk(cache: &ReleasesCache) {
 
 async fn fetch_releases_remote(client: &Client) -> Result<Vec<GitHubRelease>> {
     let config = load_config()?;
-    let url = build_api_url(&config.github_proxy);
+    let url = network_config::astrbot_releases_api_url(config.as_ref());
     fetch_json(client, &url).await
 }
 
@@ -180,9 +181,12 @@ pub async fn fetch_python_releases(client: &Client) -> Result<Vec<GitHubRelease>
 }
 
 /// Get the source archive URL for a given tag, optionally using proxy.
-pub fn get_source_archive_url(tag: &str) -> String {
+pub fn get_source_archive_urls(tag: &str) -> Vec<String> {
     match load_config() {
-        Ok(config) => build_download_url(&config.github_proxy, tag),
-        Err(_) => format!("https://github.com/{}/archive/{}.zip", ASTRBOT_REPO, tag),
+        Ok(config) => network_config::astrbot_source_archive_urls(config.as_ref(), tag),
+        Err(_) => vec![format!(
+            "https://github.com/{}/archive/{}.zip",
+            ASTRBOT_REPO, tag
+        )],
     }
 }

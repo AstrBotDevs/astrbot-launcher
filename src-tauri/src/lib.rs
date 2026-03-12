@@ -8,6 +8,7 @@ mod error;
 mod github;
 mod instance;
 mod migration;
+mod network_config;
 mod platform;
 mod process;
 mod setup;
@@ -27,7 +28,6 @@ use config::{load_config, with_manifest_mut};
 pub use error::{AppError, ErrorKind, Result};
 use process::ProcessManager;
 use utils::log_bus::LogEntry;
-use utils::proxy::resolve_proxy_from_config;
 
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -79,8 +79,7 @@ pub fn run() {
         .manage({
             let startup_client = (|| {
                 let config = load_config()?;
-                let proxy = resolve_proxy_from_config(config.as_ref())?;
-                utils::net::build_http_client_with_proxy(proxy)
+                network_config::build_http_client_from_config(config.as_ref())
             })()
             .unwrap_or_else(|e| {
                 log::warn!(
@@ -121,6 +120,7 @@ pub fn run() {
             commands::save_check_instance_update,
             commands::save_persist_instance_state,
             commands::save_ignore_external_path,
+            commands::save_mainland_acceleration,
             commands::is_macos,
             // Components
             commands::install_component,

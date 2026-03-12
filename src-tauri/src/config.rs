@@ -20,6 +20,8 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
+    pub mainland_acceleration: bool,
+    #[serde(default)]
     pub github_proxy: String,
     #[serde(default)]
     pub proxy_url: String,
@@ -50,6 +52,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            mainland_acceleration: false,
             github_proxy: String::new(),
             proxy_url: String::new(),
             proxy_port: String::new(),

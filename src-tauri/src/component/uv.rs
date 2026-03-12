@@ -8,10 +8,9 @@ use super::common::install_from_archive_with_progress;
 use crate::archive::ArchiveFormat;
 use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
+use crate::network_config;
 use crate::platform::get_uv_archive_name;
-use crate::utils::index_url::{normalize_default_index, wrap_with_proxy};
 use crate::utils::paths::{get_component_dir, get_uv_cache_dir, get_uv_exe_path, get_uvx_exe_path};
-use crate::utils::proxy;
 
 pub fn is_uv_installed() -> bool {
     let uv_dir = get_component_dir("uv");
@@ -42,9 +41,9 @@ pub async fn uv_sync(
     std::fs::create_dir_all(&cache_dir)
         .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;
 
-    let default_index = normalize_default_index(&config.pypi_mirror);
+    let default_index = network_config::default_index(config);
     let new_path = crate::component::build_instance_path(venv_python, config.ignore_external_path)?;
-    let proxy_env_vars = match proxy::build_proxy_env_vars(config) {
+    let proxy_env_vars = match network_config::proxy_env_vars(config) {
         Ok(vars) => vars,
         Err(e) => {
             log::warn!(
@@ -72,7 +71,7 @@ pub async fn uv_sync(
         .env("PATH", new_path)
         .env("VIRTUAL_ENV", venv_dir)
         .env_remove("PYTHONHOME");
-    proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
+    crate::utils::proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
 
     #[cfg(target_os = "windows")]
     {
@@ -149,13 +148,12 @@ async fn do_install_uv(client: &Client, app_handle: Option<&AppHandle>) -> Resul
 
     let archive_name =
         get_uv_archive_name().map_err(|e| AppError::io(format!("Unsupported platform: {}", e)))?;
-    let raw_url = format!(
-        "https://github.com/astral-sh/uv/releases/latest/download/{}",
-        archive_name
-    );
     let download_url = match load_config() {
-        Ok(config) => wrap_with_proxy(&config.github_proxy, &raw_url),
-        Err(_) => raw_url,
+        Ok(config) => network_config::build_uv_download_url(config.as_ref(), archive_name),
+        Err(_) => format!(
+            "https://github.com/astral-sh/uv/releases/latest/download/{}",
+            archive_name
+        ),
     };
 
     let archive_path = target_dir.join(archive_name);
