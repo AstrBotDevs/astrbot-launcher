@@ -8,11 +8,19 @@ use crate::config::AppConfig;
 use crate::error::{AppError, Result};
 use crate::utils::sys_proxy;
 
-const PROXY_ENV_SLOTS: [(&str, [&str; 2]); 4] = [
-    ("all", ["ALL_PROXY", "all_proxy"]),
-    ("http", ["HTTP_PROXY", "http_proxy"]),
-    ("https", ["HTTPS_PROXY", "https_proxy"]),
-    ("no", ["NO_PROXY", "no_proxy"]),
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProxyEnvSlot {
+    All,
+    Http,
+    Https,
+    No,
+}
+
+const PROXY_ENV_SLOTS: [(ProxyEnvSlot, [&str; 2]); 4] = [
+    (ProxyEnvSlot::All, ["ALL_PROXY", "all_proxy"]),
+    (ProxyEnvSlot::Http, ["HTTP_PROXY", "http_proxy"]),
+    (ProxyEnvSlot::Https, ["HTTPS_PROXY", "https_proxy"]),
+    (ProxyEnvSlot::No, ["NO_PROXY", "no_proxy"]),
 ];
 
 pub(crate) const DEFAULT_NO_PROXY_VALUE: &str = concat!(
@@ -50,10 +58,10 @@ impl ProxySettings {
     ) -> Self {
         Self {
             source,
-            all_proxy: normalize_proxy_value(all_proxy),
-            http_proxy: normalize_proxy_value(http_proxy),
-            https_proxy: normalize_proxy_value(https_proxy),
-            no_proxy: normalize_no_proxy_value(no_proxy),
+            all_proxy: normalize_opt_string(all_proxy),
+            http_proxy: normalize_opt_string(http_proxy),
+            https_proxy: normalize_opt_string(https_proxy),
+            no_proxy: normalize_opt_string(no_proxy),
         }
     }
 
@@ -62,7 +70,7 @@ impl ProxySettings {
     }
 
     pub(crate) fn with_no_proxy(mut self, no_proxy: Option<String>) -> Self {
-        self.no_proxy = normalize_no_proxy_value(no_proxy);
+        self.no_proxy = normalize_opt_string(no_proxy);
         self
     }
 
@@ -214,10 +222,10 @@ pub(crate) fn parse_configured_proxy_settings(config: &AppConfig) -> Result<Opti
 fn environment_proxy_settings() -> Option<ProxySettings> {
     Some(ProxySettings::new(
         ProxySource::Environment,
-        first_env_value(env_keys("all")),
-        first_env_value(env_keys("http")),
-        first_env_value(env_keys("https")),
-        first_env_value(env_keys("no")),
+        first_env_value(ProxyEnvSlot::All),
+        first_env_value(ProxyEnvSlot::Http),
+        first_env_value(ProxyEnvSlot::Https),
+        first_env_value(ProxyEnvSlot::No),
     ))
     .filter(ProxySettings::has_proxy)
 }
@@ -252,11 +260,10 @@ pub(crate) fn build_proxy_env_vars(config: &AppConfig) -> Result<Vec<(OsString, 
 
     for (slot, keys) in PROXY_ENV_SLOTS {
         let value = match slot {
-            "all" => proxy.all_proxy.as_deref(),
-            "http" => proxy.http_proxy.as_deref(),
-            "https" => proxy.https_proxy.as_deref(),
-            "no" => proxy.no_proxy.as_deref(),
-            _ => None,
+            ProxyEnvSlot::All => proxy.all_proxy.as_deref(),
+            ProxyEnvSlot::Http => proxy.http_proxy.as_deref(),
+            ProxyEnvSlot::Https => proxy.https_proxy.as_deref(),
+            ProxyEnvSlot::No => proxy.no_proxy.as_deref(),
         };
 
         if let Some(value) = value {
@@ -281,14 +288,7 @@ pub(crate) fn apply_proxy_env(cmd: &mut Command, env_vars: &[(OsString, OsString
     }
 }
 
-fn normalize_proxy_value(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| trimmed.to_string())
-    })
-}
-
-fn normalize_no_proxy_value(value: Option<String>) -> Option<String> {
+fn normalize_opt_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
@@ -307,18 +307,10 @@ fn ensure_supported_proxy_scheme(url: &str) -> Result<()> {
     )))
 }
 
-fn env_keys(slot: &str) -> &'static [&'static str; 2] {
-    match slot {
-        "all" => &["ALL_PROXY", "all_proxy"],
-        "http" => &["HTTP_PROXY", "http_proxy"],
-        "https" => &["HTTPS_PROXY", "https_proxy"],
-        "no" => &["NO_PROXY", "no_proxy"],
-        _ => unreachable!("proxy env slot must exist"),
-    }
-}
-
-fn first_env_value(keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| env::var(key).ok())
-        .and_then(|value| normalize_proxy_value(Some(value)))
+fn first_env_value(slot: ProxyEnvSlot) -> Option<String> {
+    PROXY_ENV_SLOTS
+        .iter()
+        .find(|(candidate, _)| *candidate == slot)
+        .and_then(|(_, keys)| keys.iter().find_map(|key| env::var(key).ok()))
+        .and_then(|value| normalize_opt_string(Some(value)))
 }

@@ -332,7 +332,7 @@ pub(crate) fn read() -> Option<ProxySettings> {
             kSCPropNetProxiesHTTPSEnable,
             kSCPropNetProxiesHTTPSProxy,
             kSCPropNetProxiesHTTPSPort,
-            "http",
+            "https",
         )
     };
     let socks_proxy = unsafe {
