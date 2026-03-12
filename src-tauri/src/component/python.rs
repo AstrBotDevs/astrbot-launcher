@@ -237,7 +237,7 @@ async fn install_python_version(
             let (asset_name, version) =
                 find_mainland_python_asset_for_version(&asset_names, major_version)?;
             let download_url =
-                network_config::build_python_asset_download_url(config.as_ref(), &asset_name, "");
+                network_config::build_mainland_python_asset_download_url(&asset_name);
             (download_url, version)
         }
         Ok(config) => {
@@ -245,7 +245,10 @@ async fn install_python_version(
                 find_github_python_asset(client, major_version).await?;
 
             (
-                network_config::build_python_asset_download_url(config.as_ref(), "", &github_url),
+                network_config::build_github_python_asset_download_url(
+                    config.as_ref(),
+                    &github_url,
+                ),
                 python_version,
             )
         }

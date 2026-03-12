@@ -103,14 +103,13 @@ pub(crate) fn build_uv_download_url(config: &AppConfig, archive_name: &str) -> S
     }
 }
 
-pub(crate) fn build_python_asset_download_url(
+pub(crate) fn build_mainland_python_asset_download_url(asset_name: &str) -> String {
+    format!("{}{}", MAINLAND_PYTHON_BUILD_STANDALONE_BASE, asset_name)
+}
+
+pub(crate) fn build_github_python_asset_download_url(
     config: &AppConfig,
-    asset_name: &str,
     github_url: &str,
 ) -> String {
-    if mainland_acceleration(config) {
-        format!("{}{}", MAINLAND_PYTHON_BUILD_STANDALONE_BASE, asset_name)
-    } else {
-        wrap_with_proxy(&config.github_proxy, github_url)
-    }
+    wrap_with_proxy(&config.github_proxy, github_url)
 }
