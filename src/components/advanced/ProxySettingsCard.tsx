@@ -41,11 +41,7 @@ export function ProxySettingsCard({
     >
       <Form layout="vertical" disabled={disabled}>
         <Form.Item
-          extra={
-            disabled
-              ? '中国大陆一键加速开启时，此处配置仅展示已保存内容，不参与实际下载。'
-              : '支持 HTTP / HTTPS / SOCKS5，留空保存后会回退到环境变量代理或系统代理'
-          }
+          extra="支持 HTTP / HTTPS / SOCKS5，留空保存后会回退到环境变量代理或系统代理"
           validateStatus={proxyError ? 'error' : undefined}
           help={proxyError ?? undefined}
         >

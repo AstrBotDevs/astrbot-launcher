@@ -118,11 +118,7 @@ export function SourceSettingsCard({
       <Form layout="vertical" disabled={disabled}>
         <SourceInputRow
           label="GitHub 代理"
-          extra={
-            disabled
-              ? '中国大陆一键加速开启时，此处配置仅展示已保存内容，不参与实际下载。'
-              : '用于加速 GitHub API 和文件下载，留空使用官方地址'
-          }
+          extra="用于加速 GitHub API 和文件下载，留空使用官方地址"
           value={githubProxy}
           placeholder="例如: https://cdn.gh-proxy.org"
           loading={githubSaving}
@@ -157,7 +153,7 @@ export function SourceSettingsCard({
           onSave={onSaveNodejsMirror}
         />
         <SourceInputRow
-          label="npm 注册源"
+          label="npm 镜像源"
           extra="用于加速 npm 包安装，留空使用官方源"
           value={npmRegistry}
           placeholder="例如: https://registry.npmmirror.com"
