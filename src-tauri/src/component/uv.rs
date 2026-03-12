@@ -13,8 +13,6 @@ use crate::utils::index_url::{normalize_default_index, wrap_with_proxy};
 use crate::utils::paths::{get_component_dir, get_uv_cache_dir, get_uv_exe_path, get_uvx_exe_path};
 use crate::utils::proxy;
 
-const UV_VERSION: &str = "0.10.2";
-
 pub fn is_uv_installed() -> bool {
     let uv_dir = get_component_dir("uv");
     let uv_exe = get_uv_exe_path(&uv_dir);
@@ -108,14 +106,52 @@ pub async fn reinstall_uv(client: &Client, app_handle: Option<&AppHandle>) -> Re
     Ok(format!("已重新安装 uv: {}", version))
 }
 
+async fn detect_installed_uv_version(uv_exe: &std::path::Path) -> String {
+    let mut cmd = Command::new(uv_exe);
+    cmd.arg("--version");
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    match cmd.output().await {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let version = stdout.trim();
+            if version.is_empty() {
+                "latest".to_string()
+            } else {
+                version
+                    .strip_prefix("uv ")
+                    .unwrap_or(version)
+                    .trim()
+                    .to_string()
+            }
+        }
+        Ok(output) => {
+            log::warn!(
+                "Failed to detect installed uv version, exit status: {}",
+                output.status
+            );
+            "latest".to_string()
+        }
+        Err(e) => {
+            log::warn!("Failed to run uv --version after install: {}", e);
+            "latest".to_string()
+        }
+    }
+}
+
 async fn do_install_uv(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
     let target_dir = get_component_dir("uv");
 
     let archive_name =
         get_uv_archive_name().map_err(|e| AppError::io(format!("Unsupported platform: {}", e)))?;
     let raw_url = format!(
-        "https://github.com/astral-sh/uv/releases/download/{}/{}",
-        UV_VERSION, archive_name
+        "https://github.com/astral-sh/uv/releases/latest/download/{}",
+        archive_name
     );
     let download_url = match load_config() {
         Ok(config) => wrap_with_proxy(&config.github_proxy, &raw_url),
@@ -142,18 +178,18 @@ async fn do_install_uv(client: &Client, app_handle: Option<&AppHandle>) -> Resul
     let uv_exe = get_uv_exe_path(&target_dir);
     if !uv_exe.exists() {
         return Err(AppError::io(format!(
-            "uv {} extracted but executable not found: {:?}",
-            UV_VERSION, uv_exe
+            "uv extracted but executable not found: {:?}",
+            uv_exe
         )));
     }
 
     let uvx_exe = get_uvx_exe_path(&target_dir);
     if !uvx_exe.exists() {
         return Err(AppError::io(format!(
-            "uv {} extracted but uvx executable not found: {:?}",
-            UV_VERSION, uvx_exe
+            "uv extracted but uvx executable not found: {:?}",
+            uvx_exe
         )));
     }
 
-    Ok(UV_VERSION.to_string())
+    Ok(detect_installed_uv_version(&uv_exe).await)
 }
