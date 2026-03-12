@@ -80,16 +80,6 @@ fn apply_uv_fallback(config: &mut AppConfig) {
     }
 }
 
-fn build_client_after_config_update<F>(update: F) -> Result<Client>
-where
-    F: FnOnce(&mut AppConfig),
-{
-    let current = load_config()?;
-    let mut next = (*current).clone();
-    update(&mut next);
-    network_config::build_http_client_from_config(&next)
-}
-
 pub(crate) fn build_app_snapshot_with(
     process_manager: &ProcessManager,
     load_config_fn: fn() -> Result<std::sync::Arc<AppConfig>>,
@@ -190,19 +180,12 @@ pub async fn save_proxy(
         ));
     }
 
-    let next_client = build_client_after_config_update(|config| {
+    let next_client = with_config_mut(move |config| {
         config.proxy_url = proxy_fields.url.clone();
         config.proxy_port = proxy_fields.port.clone();
         config.proxy_username = proxy_fields.username.clone();
         config.proxy_password = proxy_fields.password.clone();
-    })?;
-
-    with_config_mut(move |config| {
-        config.proxy_url = proxy_fields.url;
-        config.proxy_port = proxy_fields.port;
-        config.proxy_username = proxy_fields.username;
-        config.proxy_password = proxy_fields.password;
-        Ok(())
+        network_config::build_http_client_from_config(config)
     })?;
 
     state.replace_client(next_client);
@@ -240,13 +223,9 @@ pub async fn save_mainland_acceleration(
     mainland_acceleration: bool,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let next_client = build_client_after_config_update(|config| {
+    let next_client = with_config_mut(move |config| {
         config.mainland_acceleration = mainland_acceleration;
-    })?;
-
-    with_config_mut(move |config| {
-        config.mainland_acceleration = mainland_acceleration;
-        Ok(())
+        network_config::build_http_client_from_config(config)
     })?;
 
     state.replace_client(next_client);
