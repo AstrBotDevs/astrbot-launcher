@@ -27,6 +27,7 @@ use config::{load_config, with_manifest_mut};
 pub use error::{AppError, ErrorKind, Result};
 use process::ProcessManager;
 use utils::log_bus::LogEntry;
+use utils::proxy::resolve_proxy_from_config;
 
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -76,15 +77,21 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .manage({
-            let startup_client = load_config()
-                .and_then(|cfg| utils::net::build_http_client(&cfg))
-                .unwrap_or_else(|e| {
-                    log::warn!("Failed to initialize configured proxy client: {}", e);
-                    Client::builder()
-                        .timeout(Duration::from_secs(30))
-                        .build()
-                        .expect("Failed to create fallback HTTP client")
-                });
+            let startup_client = (|| {
+                let config = load_config()?;
+                let proxy = resolve_proxy_from_config(config.as_ref())?;
+                utils::net::build_http_client_with_proxy(proxy)
+            })()
+            .unwrap_or_else(|e| {
+                log::warn!(
+                    "Failed to initialize HTTP client with proxy settings, falling back to default client: {}",
+                    e
+                );
+                Client::builder()
+                    .timeout(Duration::from_secs(30))
+                    .build()
+                    .expect("Failed to create fallback HTTP client")
+            });
             AppState {
                 client: RwLock::new(startup_client),
                 process_manager: ProcessManager::new(),

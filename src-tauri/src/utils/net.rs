@@ -3,9 +3,8 @@ use std::time::Duration;
 use reqwest::{Client, NoProxy, Proxy};
 use serde::de::DeserializeOwned;
 
-use crate::config::AppConfig;
 use crate::error::{AppError, Result};
-use crate::utils::proxy::{build_proxy_url, DEFAULT_NO_PROXY_VALUE};
+use crate::utils::proxy::{ProxySettings, ProxySource};
 
 pub(crate) const USER_AGENT: &str = concat!(
     env!("CARGO_PKG_NAME"),
@@ -14,37 +13,79 @@ pub(crate) const USER_AGENT: &str = concat!(
     " (+https://github.com/AstrBotDevs/astrbot-launcher)"
 );
 
-pub(crate) fn build_http_client_with_proxy_fields(
-    url: &str,
-    port: &str,
-    username: &str,
-    password: &str,
-) -> Result<Client> {
+pub(crate) fn build_http_client_with_proxy(proxy: Option<ProxySettings>) -> Result<Client> {
     let mut builder = Client::builder().timeout(Duration::from_secs(30));
 
-    if let Some(proxy_url) = build_proxy_url(url, port, username, password)? {
-        let proxy = Proxy::all(proxy_url)
-            .map_err(|e| AppError::config(format!("代理地址无效: {}", e)))?
-            .no_proxy(NoProxy::from_string(DEFAULT_NO_PROXY_VALUE));
-        builder = builder.proxy(proxy);
+    let Some(proxy) = proxy else {
+        return builder
+            .no_proxy()
+            .build()
+            .map_err(|e| AppError::network(format!("创建网络客户端失败: {}", e)));
+    };
+
+    let mut has_proxy = false;
+
+    if let Some(url) = proxy.all_proxy.as_deref() {
+        if let Some(proxy_value) = build_reqwest_proxy(Proxy::all(url), &proxy, "all")? {
+            builder = builder.proxy(proxy_value);
+            has_proxy = true;
+        }
     }
 
-    builder
-        .build()
-        .map_err(|e| AppError::network(format!("创建网络客户端失败: {}", e)))
+    if let Some(url) = proxy.http_proxy.as_deref() {
+        if let Some(proxy_value) = build_reqwest_proxy(Proxy::http(url), &proxy, "http")? {
+            builder = builder.proxy(proxy_value);
+            has_proxy = true;
+        }
+    }
+
+    if let Some(url) = proxy.https_proxy.as_deref() {
+        if let Some(proxy_value) = build_reqwest_proxy(Proxy::https(url), &proxy, "https")? {
+            builder = builder.proxy(proxy_value);
+            has_proxy = true;
+        }
+    }
+
+    (if has_proxy {
+        builder
+    } else {
+        builder.no_proxy()
+    })
+    .build()
+    .map_err(|e| AppError::network(format!("创建网络客户端失败: {}", e)))
 }
 
-pub(crate) fn build_http_client(config: &AppConfig) -> Result<Client> {
-    build_http_client_with_proxy_fields(
-        &config.proxy_url,
-        &config.proxy_port,
-        &config.proxy_username,
-        &config.proxy_password,
-    )
-}
+fn build_reqwest_proxy(
+    proxy_result: std::result::Result<Proxy, reqwest::Error>,
+    settings: &ProxySettings,
+    label: &str,
+) -> Result<Option<Proxy>> {
+    let mut reqwest_proxy = match proxy_result {
+        Ok(proxy) => proxy,
+        Err(error) if settings.source != ProxySource::AppConfig => {
+            let source = match settings.source {
+                ProxySource::AppConfig => "configured",
+                ProxySource::Environment => "environment",
+                ProxySource::System => "system",
+            };
+            log::warn!(
+                "Invalid {} {} proxy address, ignored: {}",
+                source,
+                label,
+                error
+            );
+            return Ok(None);
+        }
+        Err(error) => {
+            return Err(AppError::config(format!("代理地址无效: {}", error)));
+        }
+    };
 
-pub(crate) fn build_get_request<'a>(client: &'a Client, url: &'a str) -> reqwest::RequestBuilder {
-    client.get(url).header("User-Agent", USER_AGENT)
+    if let Some(no_proxy) = settings.no_proxy.as_deref() {
+        reqwest_proxy = reqwest_proxy.no_proxy(NoProxy::from_string(no_proxy));
+    }
+
+    Ok(Some(reqwest_proxy))
 }
 
 pub(crate) async fn send_get(
@@ -53,9 +94,12 @@ pub(crate) async fn send_get(
     accept_json: bool,
 ) -> std::result::Result<reqwest::Response, reqwest::Error> {
     let request = if accept_json {
-        build_get_request(client, url).header("Accept", "application/json")
+        client
+            .get(url)
+            .header("User-Agent", USER_AGENT)
+            .header("Accept", "application/json")
     } else {
-        build_get_request(client, url)
+        client.get(url).header("User-Agent", USER_AGENT)
     };
     request.send().await
 }

@@ -18,9 +18,11 @@ use crate::instance::{self, InstanceStatus};
 use crate::platform;
 use crate::process::ProcessManager;
 use crate::utils::index_url::normalize_default_index;
-use crate::utils::net::build_http_client_with_proxy_fields;
-use crate::utils::net::check_url;
-use crate::utils::proxy::normalized_proxy_fields;
+use crate::utils::net::{build_http_client_with_proxy, check_url};
+use crate::utils::proxy::{
+    build_single_url_proxy_settings, resolve_proxy_with_fallbacks, ProxyFields, ProxySource,
+    DEFAULT_NO_PROXY_VALUE,
+};
 use crate::utils::sync::{read_lock_recover, write_lock_recover};
 
 fn sort_installed_versions_semver(versions: &mut [InstalledVersion]) {
@@ -156,33 +158,39 @@ pub async fn save_proxy(
     proxy_password: String,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    let (url, port, username, password) =
-        normalized_proxy_fields(proxy_url, proxy_port, proxy_username, proxy_password);
+    let proxy_fields = ProxyFields::new(proxy_url, proxy_port, proxy_username, proxy_password);
 
-    let next_client = build_http_client_with_proxy_fields(&url, &port, &username, &password)?;
+    // Use a raw client (no system-proxy fallback) purely for connectivity tests.
+    let configured_proxy = build_single_url_proxy_settings(
+        ProxySource::AppConfig,
+        &proxy_fields,
+        Some(DEFAULT_NO_PROXY_VALUE.to_string()),
+    )?;
+    let test_proxy = configured_proxy.clone();
+    let test_client = build_http_client_with_proxy(test_proxy)?;
 
-    if !url.is_empty() {
-        let cloudflare_url = "https://cloudflare.com/cdn-cgi/trace";
-        let cloudflare_result = check_url(&next_client, cloudflare_url).await;
-        if cloudflare_result.is_err() {
-            let baidu_url = "https://baidu.com";
-            let baidu_result = check_url(&next_client, baidu_url).await;
-            if baidu_result.is_err() {
-                return Err(AppError::network(
-                    "代理配置错误，无法连接 cloudflare.com 或 baidu.com",
-                ));
-            }
-        }
+    if !proxy_fields.url.is_empty()
+        && check_url(&test_client, "https://cloudflare.com/cdn-cgi/trace")
+            .await
+            .is_err()
+        && check_url(&test_client, "https://baidu.com").await.is_err()
+    {
+        return Err(AppError::network(
+            "代理配置错误，无法连接 cloudflare.com 或 baidu.com",
+        ));
     }
 
+    // Build the client with proxy priority: app config > environment > system > no proxy.
+    let client = build_http_client_with_proxy(resolve_proxy_with_fallbacks(configured_proxy))?;
+
     let previous_client = state.client();
-    state.replace_client(next_client);
+    state.replace_client(client);
 
     if let Err(error) = with_config_mut(move |config| {
-        config.proxy_url = url;
-        config.proxy_port = port;
-        config.proxy_username = username;
-        config.proxy_password = password;
+        config.proxy_url = proxy_fields.url;
+        config.proxy_port = proxy_fields.port;
+        config.proxy_username = proxy_fields.username;
+        config.proxy_password = proxy_fields.password;
         Ok(())
     }) {
         state.replace_client(previous_client);

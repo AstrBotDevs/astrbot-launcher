@@ -6,4 +6,5 @@ pub(crate) mod net;
 pub(crate) mod paths;
 pub(crate) mod proxy;
 pub(crate) mod sync;
+pub(crate) mod sys_proxy;
 pub(crate) mod validation;

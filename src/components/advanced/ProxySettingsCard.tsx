@@ -34,7 +34,7 @@ export function ProxySettingsCard({
     <Card title="代理" size="small" style={{ marginBottom: 16 }}>
       <Form layout="vertical">
         <Form.Item
-          extra="支持 HTTP / HTTPS / SOCKS5，留空保存表示不使用代理"
+          extra="支持 HTTP / HTTPS / SOCKS5，留空保存后会回退到环境变量代理或系统代理"
           validateStatus={proxyError ? 'error' : undefined}
           help={proxyError ?? undefined}
         >
