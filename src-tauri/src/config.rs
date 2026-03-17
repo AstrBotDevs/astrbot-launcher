@@ -151,23 +151,20 @@ fn load_or_init_config_value() -> Result<AppConfig> {
             .map(|raw| deserialize_value::<AppConfig>(raw.value()))
     };
 
-    match stored {
-        Some(Ok(config)) => Ok(config),
-        Some(Err(error)) => {
-            log::warn!(
-                "Config record is corrupted JSON, resetting to default value: {}",
-                error
-            );
-            let default = AppConfig::default();
-            insert_config_value(&default)?;
-            Ok(default)
-        }
-        None => {
-            let default = AppConfig::default();
-            insert_config_value(&default)?;
-            Ok(default)
-        }
+    if let Some(Ok(config)) = stored {
+        return Ok(config);
     }
+
+    if let Some(Err(error)) = stored {
+        log::warn!(
+            "Config record is corrupted JSON, resetting to default value: {}",
+            error
+        );
+    }
+
+    let default = AppConfig::default();
+    insert_config_value(&default)?;
+    Ok(default)
 }
 
 fn load_or_init_manifest_value() -> Result<AppManifest> {
@@ -183,23 +180,20 @@ fn load_or_init_manifest_value() -> Result<AppManifest> {
             .map(|raw| deserialize_value::<AppManifest>(raw.value()))
     };
 
-    match stored {
-        Some(Ok(manifest)) => Ok(manifest),
-        Some(Err(error)) => {
-            log::warn!(
-                "Manifest record is corrupted JSON, resetting to default value: {}",
-                error
-            );
-            let default = AppManifest::default();
-            insert_manifest_value(&default)?;
-            Ok(default)
-        }
-        None => {
-            let default = AppManifest::default();
-            insert_manifest_value(&default)?;
-            Ok(default)
-        }
+    if let Some(Ok(manifest)) = stored {
+        return Ok(manifest);
     }
+
+    if let Some(Err(error)) = stored {
+        log::warn!(
+            "Manifest record is corrupted JSON, resetting to default value: {}",
+            error
+        );
+    }
+
+    let default = AppManifest::default();
+    insert_manifest_value(&default)?;
+    Ok(default)
 }
 
 fn with_config_value_mut<F, R>(f: F) -> Result<R>
