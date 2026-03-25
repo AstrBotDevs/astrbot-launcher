@@ -8,6 +8,7 @@ interface UpdateState {
   hasUpdate: boolean;
   newVersion: string;
   releaseNotes: string;
+  releaseNotesReady: boolean;
   checking: boolean;
   installing: boolean;
   pendingUpdate: Update | null;
@@ -19,6 +20,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   hasUpdate: false,
   newVersion: '',
   releaseNotes: '',
+  releaseNotesReady: false,
   checking: false,
   installing: false,
   pendingUpdate: null,
@@ -33,11 +35,23 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           hasUpdate: true,
           newVersion: update.version,
           releaseNotes: update.body ?? '',
+          releaseNotesReady: false,
           pendingUpdate: update,
         });
+        // Fetch full release notes asynchronously; mark ready when done to trigger animation
+        fetch(
+          `https://api.github.com/repos/AstrBotDevs/astrbot-launcher/releases/tags/v${update.version}`
+        )
+          .then((res) => (res.ok ? (res.json() as Promise<{ body?: string }>) : null))
+          .then((data) => {
+            set({ releaseNotes: data?.body ?? get().releaseNotes, releaseNotesReady: true });
+          })
+          .catch(() => {
+            set({ releaseNotesReady: true });
+          });
         return 'found';
       } else {
-        set({ hasUpdate: false, newVersion: '', releaseNotes: '', pendingUpdate: null });
+        set({ hasUpdate: false, newVersion: '', releaseNotes: '', releaseNotesReady: false, pendingUpdate: null });
         return 'latest';
       }
     } catch (e) {

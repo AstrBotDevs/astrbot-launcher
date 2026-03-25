@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Card, Space, Tag, Typography, List, Drawer, Tooltip, Progress } from 'antd';
+import { Button, Card, Space, Tag, Typography, List, Drawer, Tooltip, Progress, theme } from 'antd';
 import {
   DownloadOutlined,
   DeleteOutlined,
   ReloadOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
 import type { InstalledVersion, GitHubRelease } from '../types';
+import { linkifyMarkdown } from '../utils';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
@@ -14,7 +16,7 @@ import { useAppStore } from '../stores';
 import { ConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 export default function Versions() {
   const versions = useAppStore((s) => s.versions);
@@ -132,6 +134,8 @@ export default function Versions() {
     },
     [runOperation]
   );
+
+  const { token } = theme.useToken();
 
   const isInstalled = (tagName: string) => versions.some((v) => v.version === tagName);
   const availableReleases = releases.filter((r) => !isInstalled(r.tag_name));
@@ -380,17 +384,35 @@ export default function Versions() {
               <div
                 style={{
                   marginTop: 8,
-                  padding: 12,
-                  background: '#f5f5f5',
-                  borderRadius: 8,
+                  padding: '4px 12px',
+                  background: token.colorFillAlter,
+                  border: `1px solid ${token.colorBorderSecondary}`,
+                  borderRadius: token.borderRadius,
                   maxHeight: 400,
                   overflow: 'auto',
+                  fontSize: token.fontSizeSM,
+                  color: token.colorText,
+                  lineHeight: 1.6,
                 }}
               >
                 {detailRelease.body ? (
-                  <Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-                    {detailRelease.body}
-                  </Paragraph>
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => <h3 style={{ marginBottom: 4 }}>{children}</h3>,
+                      h2: ({ children }) => <h4 style={{ marginBottom: 4 }}>{children}</h4>,
+                      h3: ({ children }) => <strong style={{ display: 'block', marginTop: 8, marginBottom: 2 }}>{children}</strong>,
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noreferrer" style={{ color: token.colorPrimary }}>
+                          {children}
+                        </a>
+                      ),
+                      p: ({ children }) => <p style={{ margin: '2px 0' }}>{children}</p>,
+                      ul: ({ children }) => <ul style={{ paddingLeft: 20, margin: '4px 0' }}>{children}</ul>,
+                      li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+                    }}
+                  >
+                    {linkifyMarkdown(detailRelease.body)}
+                  </ReactMarkdown>
                 ) : (
                   <Text type="secondary">无发布说明</Text>
                 )}
