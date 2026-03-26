@@ -25,6 +25,9 @@ import './App.css';
 const { Sider, Content } = Layout;
 const UPDATE_INTERVAL_MS = 16 * 60 * 60 * 1000;
 
+// Height of the custom titlebar. Must stay in sync with .titlebar { height } in App.css.
+const TITLEBAR_HEIGHT = 40;
+
 function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,7 +76,7 @@ function AppLayout() {
   ];
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Layout style={{ flex: 1, overflow: 'hidden' }}>
         <Sider
           width={180}
@@ -126,6 +129,13 @@ function App({ isMacOS }: { isMacOS: boolean }) {
     };
   }, []);
 
+  // On non-macOS, a custom titlebar occupies the top TITLEBAR_HEIGHT px.
+  // All Ant Design overlays that render via portals (Drawer, message, notification)
+  // are offset below the titlebar so interactive elements are never hidden behind it.
+  // The titlebar itself has z-index: 99999 in normal document flow, which places it
+  // above any portal-based overlay (z-index ~1000) in the root stacking context.
+  const titlebarOffset = isMacOS ? 0 : TITLEBAR_HEIGHT;
+
   return (
     <ConfigProvider
       locale={zhCN}
@@ -135,18 +145,33 @@ function App({ isMacOS }: { isMacOS: boolean }) {
           borderRadius: 8,
         },
       }}
+      drawer={{
+        styles: {
+          wrapper: {
+            top: titlebarOffset,
+            height: `calc(100% - ${titlebarOffset}px)`,
+          },
+        },
+      }}
     >
-      <AntdApp>
+      <AntdApp
+        message={{ top: titlebarOffset + 8 }}
+        notification={{ top: titlebarOffset + 8 }}
+      >
         <AntdStaticProvider />
-        {!isMacOS && <TitleBar />}
-        <BrowserRouter>
-          <Suspense>
-            <Routes>
-              <Route path="/webui/:instanceId" element={<WebUIView />} />
-              <Route path="/*" element={<AppLayout />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+          {!isMacOS && <TitleBar />}
+          <div style={{ flex: 1, height: 0, overflow: 'hidden' }}>
+            <BrowserRouter>
+              <Suspense>
+                <Routes>
+                  <Route path="/webui/:instanceId" element={<WebUIView />} />
+                  <Route path="/*" element={<AppLayout />} />
+                </Routes>
+              </Suspense>
+            </BrowserRouter>
+          </div>
+        </div>
       </AntdApp>
     </ConfigProvider>
   );
