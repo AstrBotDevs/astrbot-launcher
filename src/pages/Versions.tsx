@@ -11,6 +11,7 @@ import { api } from '../api';
 import { message } from '../antdStatic';
 import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
+import { handleApiError } from '../utils';
 import { ConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
 
@@ -24,6 +25,7 @@ export default function Versions() {
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
   const operations = useAppStore((s) => s.operations);
   const downloadProgress = useAppStore((s) => s.downloadProgress);
+  const clearDownloadProgress = useAppStore((s) => s.clearDownloadProgress);
   const { runOperation } = useOperationRunner();
 
   const [detailRelease, setDetailRelease] = useState<GitHubRelease | null>(null);
@@ -75,9 +77,13 @@ export default function Versions() {
         onSuccess: () => {
           message.success(`版本 ${release.tag_name} 下载成功`);
         },
+        onError: (error) => {
+          clearDownloadProgress(release.tag_name);
+          handleApiError(error);
+        },
       });
     },
-    [runOperation]
+    [runOperation, clearDownloadProgress]
   );
 
   const doUninstall = useCallback(
@@ -128,9 +134,13 @@ export default function Versions() {
         onSuccess: (result) => {
           message.success(result);
         },
+        onError: (error) => {
+          clearDownloadProgress(componentId);
+          handleApiError(error);
+        },
       });
     },
-    [runOperation]
+    [runOperation, clearDownloadProgress]
   );
 
   const isInstalled = (tagName: string) => versions.some((v) => v.version === tagName);
