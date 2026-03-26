@@ -46,6 +46,8 @@ export const api = {
   // ========================================
   fetchReleases: (forceRefresh: boolean = false) =>
     invoke<GitHubRelease[]>('fetch_releases', { forceRefresh }),
+  fetchLauncherReleaseNotes: (version: string) =>
+    invoke<string | null>('fetch_launcher_release_notes', { version }),
 
   // ========================================
   // Version Management

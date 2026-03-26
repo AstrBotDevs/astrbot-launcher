@@ -14,6 +14,7 @@ use crate::utils::paths::{ensure_data_dirs, version_list_cache_path};
 use crate::utils::sync::{read_lock_recover, write_lock_recover};
 
 const ASTRBOT_REPO: &str = "AstrBotDevs/AstrBot";
+const LAUNCHER_REPO: &str = "AstrBotDevs/astrbot-launcher";
 const RELEASES_CACHE_TTL_MS: u64 = 8 * 60 * 60 * 1000;
 
 static RELEASES_CACHE: OnceLock<RwLock<Option<ReleasesCache>>> = OnceLock::new();
@@ -178,6 +179,32 @@ pub async fn fetch_python_releases(client: &Client) -> Result<Vec<GitHubRelease>
         "https://api.github.com/repos/astral-sh/python-build-standalone/releases?per_page=10",
     );
     fetch_json(client, &url).await
+}
+
+/// Fetch the release body text for a specific launcher version tag.
+/// Respects github_proxy and mainland_acceleration settings.
+pub async fn fetch_launcher_release_notes(
+    client: &Client,
+    version: &str,
+) -> Result<Option<String>> {
+    let config = load_config()?;
+    let raw_url = format!(
+        "https://api.github.com/repos/{}/releases/tags/v{}",
+        LAUNCHER_REPO, version
+    );
+    let url = if config.mainland_acceleration {
+        wrap_with_proxy(crate::network_config::MAINLAND_ASTRBOT_DOWNLOAD_PROXY, &raw_url)
+    } else {
+        wrap_with_proxy(&config.github_proxy, &raw_url)
+    };
+
+    #[derive(Deserialize)]
+    struct ReleaseNotes {
+        body: Option<String>,
+    }
+
+    let notes: ReleaseNotes = fetch_json(client, &url).await?;
+    Ok(notes.body)
 }
 
 /// Get the source archive URL for a given tag, optionally using proxy.

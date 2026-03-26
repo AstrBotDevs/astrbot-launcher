@@ -60,7 +60,7 @@ export const STATUS_MESSAGES = {
 // GitHub Repository
 // ========================================
 
-export const GITHUB_REPO = 'AstrBotDevs/astrbot-launcher';
+export const LAUNCHER_REPO = 'AstrBotDevs/astrbot-launcher';
 
 export { OPERATION_KEYS } from './operationKeys';
 export { ErrorCode, getErrorText } from './errorCodes';

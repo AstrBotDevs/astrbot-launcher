@@ -1,7 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { theme } from 'antd';
-import { linkifyMarkdown } from '../utils';
 
 interface MarkdownContentProps {
   children?: string | null;
@@ -42,7 +41,7 @@ export function MarkdownContent({ children, containerStyle, fallback }: Markdown
             li: ({ children: c }) => <li style={{ marginBottom: 2 }}>{c}</li>,
           }}
         >
-          {linkifyMarkdown(children)}
+          {children}
         </ReactMarkdown>
       ) : (
         fallback ?? null
