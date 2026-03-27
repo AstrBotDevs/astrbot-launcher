@@ -39,15 +39,17 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           releaseNotesReady: false,
           pendingUpdate: update,
         });
-        // Fetch full release notes via backend (respects proxy/mainland acceleration);
-        // mark ready when done to trigger animation
+        // Fetch full release notes via backend (respects proxy/mainland acceleration).
+
         api
           .fetchLauncherReleaseNotes(update.version)
           .then((body) => {
-            set({ releaseNotes: body ?? get().releaseNotes, releaseNotesReady: true });
+            if (body) set({ releaseNotes: body });
           })
           .catch((err: unknown) => {
             console.error('Failed to fetch full release notes:', err);
+          })
+          .finally(() => {
             set({ releaseNotesReady: true });
           });
         return 'found';
