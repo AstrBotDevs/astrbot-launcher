@@ -6,7 +6,118 @@ on:
       - 'v*'
 
 jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_body: ${{ steps.build-release-body.outputs.release_body }}
+    steps:
+      - id: build-release-body
+        name: Build bilingual release body
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const currentTag = context.ref.startsWith('refs/tags/')
+              ? context.ref.slice('refs/tags/'.length)
+              : context.ref_name;
+            const version = currentTag.startsWith('v') ? currentTag.slice(1) : currentTag;
+            const baseDownloadUrl = `https://github.com/${owner}/${repo}/releases/download/${currentTag}`;
+
+            const tags = await github.paginate(github.rest.repos.listTags, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const currentTagIndex = tags.findIndex((tag) => tag.name === currentTag);
+            const previousTag = currentTagIndex >= 0 && currentTagIndex + 1 < tags.length
+              ? tags[currentTagIndex + 1].name
+              : null;
+            const isFirstRelease = !previousTag;
+
+            let zhChangeLines = [];
+            let enChangeLines = [];
+            let zhCompareLine = '';
+            let enCompareLine = '';
+
+            if (!isFirstRelease) {
+              const generated = await github.rest.repos.generateReleaseNotes({
+                owner,
+                repo,
+                tag_name: currentTag,
+                previous_tag_name: previousTag,
+              });
+              const generatedBody = generated.data.body || '';
+              const prLines = generatedBody
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => /^[-*]\s+/.test(line) && /\/pull\/\d+/.test(line))
+                .map((line) => line.replace(/^[-*]\s+/, '- '));
+              zhChangeLines = prLines.length > 0 ? [...prLines] : ['- 修复问题并优化稳定性'];
+              enChangeLines = prLines.length > 0 ? [...prLines] : ['- Fix issues and improve stability.'];
+              zhCompareLine = `- 完整更新日志: [\`${previousTag}\`...\`${currentTag}\`](https://github.com/${owner}/${repo}/compare/${previousTag}...${currentTag})`;
+              enCompareLine = `- Full Changelog: [\`${previousTag}\`...\`${currentTag}\`](https://github.com/${owner}/${repo}/compare/${previousTag}...${currentTag})`;
+            }
+
+            const winX64 = `AstrBot.Launcher_${version}_x64-setup.exe`;
+            const winArm64 = `AstrBot.Launcher_${version}_arm64-setup.exe`;
+            const linuxX64Rpm = `AstrBot.Launcher-${version}-1.x86_64.rpm`;
+            const linuxX64Deb = `astrbot-launcher_${version}_amd64.deb`;
+            const linuxX64AppImage = `AstrBot.Launcher_${version}_amd64.AppImage`;
+            const linuxArm64Rpm = `AstrBot.Launcher-${version}-1.aarch64.rpm`;
+            const linuxArm64Deb = `astrbot-launcher_${version}_arm64.deb`;
+            const linuxArm64AppImage = `AstrBot.Launcher_${version}_aarch64.AppImage`;
+            const macX64 = `AstrBot.Launcher_${version}_x64.dmg`;
+            const macArm64 = `AstrBot.Launcher_${version}_aarch64.dmg`;
+
+            function link(file) {
+              return `[${file}](${baseDownloadUrl}/${file})`;
+            }
+
+            const zhDownloadLines = [
+              `- Windows x64：下载 EXE 安装包 ${link(winX64)}`,
+              `- Windows ARM64：下载 EXE 安装包 ${link(winArm64)}`,
+              `- Debian / Ubuntu（x64）：下载 DEB 包 ${link(linuxX64Deb)}`,
+              `- Fedora / openSUSE / RHEL / CentOS（x64）：下载 RPM 包 ${link(linuxX64Rpm)}`,
+              `- 其他 Linux 发行版（x64，通用）：下载 AppImage ${link(linuxX64AppImage)}`,
+              `- Debian / Ubuntu（ARM64）：下载 DEB 包 ${link(linuxArm64Deb)}`,
+              `- Fedora / openSUSE / RHEL / CentOS（ARM64）：下载 RPM 包 ${link(linuxArm64Rpm)}`,
+              `- 其他 Linux 发行版（ARM64，通用）：下载 AppImage ${link(linuxArm64AppImage)}`,
+              `- macOS Intel (x64)：下载 DMG 安装包 ${link(macX64)}`,
+              `- macOS Apple Silicon (ARM64)：下载 DMG 安装包 ${link(macArm64)}`,
+            ];
+
+            const enDownloadLines = [
+              `- Windows x64: use EXE installer ${link(winX64)}`,
+              `- Windows ARM64: use EXE installer ${link(winArm64)}`,
+              `- Debian / Ubuntu (x64): use DEB package ${link(linuxX64Deb)}`,
+              `- Fedora / openSUSE / RHEL / CentOS (x64): use RPM package ${link(linuxX64Rpm)}`,
+              `- Other Linux distros (x64, universal): use AppImage ${link(linuxX64AppImage)}`,
+              `- Debian / Ubuntu (ARM64): use DEB package ${link(linuxArm64Deb)}`,
+              `- Fedora / openSUSE / RHEL / CentOS (ARM64): use RPM package ${link(linuxArm64Rpm)}`,
+              `- Other Linux distros (ARM64, universal): use AppImage ${link(linuxArm64AppImage)}`,
+              `- macOS Intel (x64): use DMG installer ${link(macX64)}`,
+              `- macOS Apple Silicon (ARM64): use DMG installer ${link(macArm64)}`,
+            ];
+
+            const bodyLines = ['## 下载建议', ...zhDownloadLines];
+            if (!isFirstRelease) {
+              bodyLines.push('', '## 更新内容', zhCompareLine, ...zhChangeLines, '', '---');
+            }
+            bodyLines.push('', '## Download Recommendations', ...enDownloadLines);
+            if (!isFirstRelease) {
+              bodyLines.push('', "## What's Changed", enCompareLine, ...enChangeLines);
+            }
+            const body = bodyLines.join('\n');
+
+            core.setOutput('release_body', body);
+            core.info(`Prepared release body for ${currentTag}.`);
+
   publish-tauri:
+    needs: prepare-release
     permissions:
       contents: write
     strategy:
@@ -89,7 +200,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          releaseBody: ${{ needs.prepare-release.outputs.release_body }}
           releaseDraft: true
           prerelease: false
           tauriScript: pnpm tauri
