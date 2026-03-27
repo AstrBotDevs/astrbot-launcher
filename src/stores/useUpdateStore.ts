@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { api } from '../api';
 
 type CheckResult = 'found' | 'latest' | 'error';
 
@@ -8,6 +9,7 @@ interface UpdateState {
   hasUpdate: boolean;
   newVersion: string;
   releaseNotes: string;
+  releaseNotesReady: boolean;
   checking: boolean;
   installing: boolean;
   pendingUpdate: Update | null;
@@ -19,6 +21,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   hasUpdate: false,
   newVersion: '',
   releaseNotes: '',
+  releaseNotesReady: false,
   checking: false,
   installing: false,
   pendingUpdate: null,
@@ -33,11 +36,25 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           hasUpdate: true,
           newVersion: update.version,
           releaseNotes: update.body ?? '',
+          releaseNotesReady: false,
           pendingUpdate: update,
         });
+        // Fetch full release notes via backend (respects proxy/mainland acceleration).
+
+        api
+          .fetchLauncherReleaseNotes(update.version)
+          .then((body) => {
+            if (body) set({ releaseNotes: body });
+          })
+          .catch((err: unknown) => {
+            console.error('Failed to fetch full release notes:', err);
+          })
+          .finally(() => {
+            set({ releaseNotesReady: true });
+          });
         return 'found';
       } else {
-        set({ hasUpdate: false, newVersion: '', releaseNotes: '', pendingUpdate: null });
+        set({ hasUpdate: false, newVersion: '', releaseNotes: '', releaseNotesReady: false, pendingUpdate: null });
         return 'latest';
       }
     } catch (e) {

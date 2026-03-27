@@ -1,4 +1,5 @@
 // Components barrel export
+export { MarkdownContent } from './MarkdownContent';
 export { InstanceStatusTag } from './InstanceStatusTag';
 export { InstanceActions } from './InstanceActions';
 export { DeployProgressModal } from './DeployProgressModal';

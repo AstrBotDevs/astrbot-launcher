@@ -12,10 +12,10 @@ import { message } from '../antdStatic';
 import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import { handleApiError } from '../utils';
-import { ConfirmModal, PageHeader } from '../components';
+import { ConfirmModal, MarkdownContent, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 export default function Versions() {
   const versions = useAppStore((s) => s.versions);
@@ -387,24 +387,12 @@ export default function Versions() {
             {detailRelease.prerelease && <Tag color="orange">预发行版本</Tag>}
             <div style={{ marginTop: 16 }}>
               <Text strong>发布说明:</Text>
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: 12,
-                  background: '#f5f5f5',
-                  borderRadius: 8,
-                  maxHeight: 400,
-                  overflow: 'auto',
-                }}
+              <MarkdownContent
+                containerStyle={{ marginTop: 8, padding: '4px 12px', maxHeight: 400, overflow: 'auto' }}
+                fallback={<Text type="secondary">无发布说明</Text>}
               >
-                {detailRelease.body ? (
-                  <Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>
-                    {detailRelease.body}
-                  </Paragraph>
-                ) : (
-                  <Text type="secondary">无发布说明</Text>
-                )}
-              </div>
+                {detailRelease.body}
+              </MarkdownContent>
             </div>
             <div style={{ marginTop: 16 }}>
               <Button

@@ -127,6 +127,7 @@ pub fn run() {
             commands::reinstall_component,
             // GitHub
             commands::fetch_releases,
+            commands::fetch_launcher_release_notes,
             // Version Management
             commands::install_version,
             commands::uninstall_version,

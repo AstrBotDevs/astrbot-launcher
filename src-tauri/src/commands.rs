@@ -346,6 +346,15 @@ pub async fn fetch_releases(
     github::fetch_releases(&client, force_refresh.unwrap_or(false)).await
 }
 
+#[tauri::command]
+pub async fn fetch_launcher_release_notes(
+    state: State<'_, AppState>,
+    version: String,
+) -> Result<Option<String>> {
+    let client = state.client();
+    github::fetch_launcher_release_notes(&client, &version).await
+}
+
 // === Version Management ===
 
 #[tauri::command]
