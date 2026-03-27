@@ -103,14 +103,34 @@ jobs:
               `- macOS Apple Silicon (ARM64): use DMG installer ${link(macArm64)}`,
             ];
 
-            const bodyLines = ['## 下载建议', ...zhDownloadLines];
+            const bodyLines = [];
             if (!isFirstRelease) {
-              bodyLines.push('', '## 更新内容', zhCompareLine, ...zhChangeLines, '', '---');
+              bodyLines.push(
+                '## 更新内容',
+                zhCompareLine,
+                ...zhChangeLines,
+                '',
+              );
             }
-            bodyLines.push('', '## Download Recommendations', ...enDownloadLines);
+            bodyLines.push(
+              '## 下载建议',
+              ...zhDownloadLines,
+              '',
+              '---',
+              '',
+            );
             if (!isFirstRelease) {
-              bodyLines.push('', "## What's Changed", enCompareLine, ...enChangeLines);
+              bodyLines.push(
+                "## What's Changed",
+                enCompareLine,
+                ...enChangeLines,
+                '',
+              );
             }
+            bodyLines.push(
+              '## Download Recommendations',
+              ...enDownloadLines,
+            );
             const body = bodyLines.join('\n');
 
             core.setOutput('release_body', body);
