@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::error::Result;
 #[cfg(target_os = "windows")]
-use crate::process::win_api::{get_processes_locking_files, LockingProcessInfo, RestartManagerQueryError};
+use crate::process::win_api::{
+    get_processes_locking_files, LockingProcessInfo, RestartManagerQueryError,
+};
 #[cfg(target_os = "windows")]
 use walkdir::WalkDir;
 
@@ -46,7 +48,9 @@ pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
             let ext_match = if use_whitelist {
                 path.extension()
                     .and_then(|e| e.to_str())
-                    .is_some_and(|ext| EXTENSION_WHITELIST.contains(&ext.to_ascii_lowercase().as_str()))
+                    .is_some_and(|ext| {
+                        EXTENSION_WHITELIST.contains(&ext.to_ascii_lowercase().as_str())
+                    })
             } else {
                 path.extension().map(|ext| ext != "pyc").unwrap_or(true)
             };
@@ -91,9 +95,7 @@ pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
     let locking_processes = get_processes_locking_files(target_files).map_err(|e| {
         log::warn!("Failed to query locking processes: {}", e);
         if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
-            AppError::process_locking(
-                "系统 Restart Manager 会话数已达上限",
-            )
+            AppError::process_locking("系统 Restart Manager 会话数已达上限")
         } else {
             AppError::process_locking("目标路径占用状态检测失败")
         }

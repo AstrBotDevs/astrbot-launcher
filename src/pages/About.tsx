@@ -9,8 +9,16 @@ const { Text, Title } = Typography;
 
 export default function About() {
   const [version, setVersion] = useState('');
-  const { hasUpdate, newVersion, releaseNotes, releaseNotesReady, checking, installing, checkForUpdate, installUpdate } =
-    useUpdateStore();
+  const {
+    hasUpdate,
+    newVersion,
+    releaseNotes,
+    releaseNotesReady,
+    checking,
+    installing,
+    checkForUpdate,
+    installUpdate,
+  } = useUpdateStore();
 
   useEffect(() => {
     void getVersion().then(setVersion);

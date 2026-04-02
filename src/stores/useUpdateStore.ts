@@ -54,7 +54,13 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
           });
         return 'found';
       } else {
-        set({ hasUpdate: false, newVersion: '', releaseNotes: '', releaseNotesReady: false, pendingUpdate: null });
+        set({
+          hasUpdate: false,
+          newVersion: '',
+          releaseNotes: '',
+          releaseNotesReady: false,
+          pendingUpdate: null,
+        });
         return 'latest';
       }
     } catch (e) {
