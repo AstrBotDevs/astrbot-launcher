@@ -13,7 +13,6 @@ use crate::archive::{extract_tar_gz_mapped, extract_zip_mapped};
 use crate::config::{load_manifest, with_manifest_mut, BackupInfo, BackupMetadata, InstanceConfig};
 use crate::error::{AppError, Result};
 use crate::utils::archive_path::parse_entry_rel_path;
-#[cfg(target_os = "windows")]
 use crate::utils::lock_check::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::paths::{get_backups_dir, get_instance_core_dir, get_instance_dir};
 use crate::utils::validation::validate_instance_id;
@@ -159,6 +158,8 @@ pub fn create_backup(instance_id: &str, auto_generated: bool) -> Result<String> 
     if !data_dir.exists() {
         return Err(AppError::backup("No data directory to back up"));
     }
+    let data_files = collect_files_for_lock_check(&data_dir)?;
+    ensure_target_not_locked(&data_files)?;
 
     create_backup_archive(instance, instance_id, auto_generated)
 }
