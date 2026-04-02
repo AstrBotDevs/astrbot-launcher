@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::error::Result;
 #[cfg(target_os = "windows")]
-use crate::process::win_api::{get_processes_locking_files, LockingProcessInfo};
+use crate::process::win_api::{get_processes_locking_files, LockingProcessInfo, RestartManagerQueryError};
 #[cfg(target_os = "windows")]
 use walkdir::WalkDir;
 
@@ -64,7 +64,13 @@ fn format_locking_process(process: &LockingProcessInfo) -> String {
 pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
     let locking_processes = get_processes_locking_files(target_files).map_err(|e| {
         log::warn!("Failed to query locking processes: {}", e);
-        AppError::process_locking("目标路径占用状态检测失败")
+        if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
+            AppError::process_locking(
+                "系统 Restart Manager 会话数已达上限",
+            )
+        } else {
+            AppError::process_locking("目标路径占用状态检测失败")
+        }
     })?;
     if locking_processes.is_empty() {
         return Ok(());

@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE,
-    WIN32_ERROR,
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MAX_SESSIONS_REACHED, ERROR_MORE_DATA,
+    ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE, WIN32_ERROR,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
@@ -41,6 +41,7 @@ pub struct LockingProcessInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestartManagerQueryError {
     StartSession(WIN32_ERROR),
+    MaxSessionsReached,
     RegisterResources(WIN32_ERROR),
     GetList(WIN32_ERROR),
     RetryLimitExceeded,
@@ -56,6 +57,10 @@ impl fmt::Display for RestartManagerQueryError {
                     code.0
                 )
             }
+            Self::MaxSessionsReached => write!(
+                f,
+                "Restart Manager session limit reached; too many concurrent sessions"
+            ),
             Self::RegisterResources(code) => {
                 write!(
                     f,
@@ -86,6 +91,8 @@ impl RestartManagerSession {
             unsafe { RmStartSession(&mut handle, Some(0), PWSTR(session_key.as_mut_ptr())) };
         if result == ERROR_SUCCESS {
             Ok(Self { handle })
+        } else if result == ERROR_MAX_SESSIONS_REACHED {
+            Err(RestartManagerQueryError::MaxSessionsReached)
         } else {
             Err(RestartManagerQueryError::StartSession(result))
         }
