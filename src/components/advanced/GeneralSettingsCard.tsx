@@ -7,12 +7,14 @@ interface GeneralSettingsCardProps {
   uvInstalled: boolean;
   useUvSaving: boolean;
   mainlandAccelerationSaving: boolean;
+  lockCheckExtensionWhitelistSaving: boolean;
   onCloseToTrayChange: (value: string) => void;
   onCheckInstanceUpdateChange: (checked: boolean) => void;
   onPersistInstanceStateChange: (checked: boolean) => void;
   onAutostartChange: (checked: boolean) => void;
   onUseUvForDepsChange: (checked: boolean) => void;
   onMainlandAccelerationChange: (checked: boolean) => void;
+  onLockCheckExtensionWhitelistChange: (checked: boolean) => void;
 }
 
 export function GeneralSettingsCard({
@@ -21,12 +23,14 @@ export function GeneralSettingsCard({
   uvInstalled,
   useUvSaving,
   mainlandAccelerationSaving,
+  lockCheckExtensionWhitelistSaving,
   onCloseToTrayChange,
   onCheckInstanceUpdateChange,
   onPersistInstanceStateChange,
   onAutostartChange,
   onUseUvForDepsChange,
   onMainlandAccelerationChange,
+  onLockCheckExtensionWhitelistChange,
 }: GeneralSettingsCardProps) {
   return (
     <Card title="通用" size="small" style={{ marginBottom: 16 }}>
@@ -83,6 +87,16 @@ export function GeneralSettingsCard({
             onChange={onUseUvForDepsChange}
             disabled={!uvInstalled}
             loading={useUvSaving}
+          />
+        </Form.Item>
+        <Form.Item
+          label="文件锁检测白名单模式"
+          extra="启用后仅检测关键文件的占用状态，提升检测速度"
+        >
+          <Switch
+            checked={config?.lock_check_extension_whitelist ?? false}
+            onChange={onLockCheckExtensionWhitelistChange}
+            loading={lockCheckExtensionWhitelistSaving}
           />
         </Form.Item>
       </Form>

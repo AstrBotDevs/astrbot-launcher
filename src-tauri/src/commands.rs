@@ -277,6 +277,11 @@ define_save_config_command!(
     ignore_external_path: bool,
     ignore_external_path
 );
+define_save_config_command!(
+    save_lock_check_extension_whitelist,
+    lock_check_extension_whitelist: bool,
+    lock_check_extension_whitelist
+);
 
 // === Components ===
 

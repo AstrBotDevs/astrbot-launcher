@@ -193,7 +193,10 @@ pub async fn fetch_launcher_release_notes(
         LAUNCHER_REPO, version
     );
     let url = if config.mainland_acceleration {
-        wrap_with_proxy(crate::network_config::MAINLAND_ASTRBOT_DOWNLOAD_PROXY, &raw_url)
+        wrap_with_proxy(
+            crate::network_config::MAINLAND_ASTRBOT_DOWNLOAD_PROXY,
+            &raw_url,
+        )
     } else {
         wrap_with_proxy(&config.github_proxy, &raw_url)
     };

@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MORE_DATA, ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE,
-    WIN32_ERROR,
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MAX_SESSIONS_REACHED, ERROR_MORE_DATA,
+    ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE, WIN32_ERROR,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
@@ -27,8 +27,6 @@ use windows::Win32::System::Threading::{
 
 /// Maximum number of retries when the TCP table changes between size query and data fetch.
 const TCP_TABLE_MAX_RETRIES: usize = 4;
-/// Number of files registered in each Restart Manager batch.
-const RM_REGISTER_BATCH_SIZE: usize = 256;
 /// Maximum retries when Restart Manager list changes between calls.
 const RM_GET_LIST_MAX_RETRIES: usize = 4;
 
@@ -43,6 +41,7 @@ pub struct LockingProcessInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestartManagerQueryError {
     StartSession(WIN32_ERROR),
+    MaxSessionsReached,
     RegisterResources(WIN32_ERROR),
     GetList(WIN32_ERROR),
     RetryLimitExceeded,
@@ -58,6 +57,10 @@ impl fmt::Display for RestartManagerQueryError {
                     code.0
                 )
             }
+            Self::MaxSessionsReached => write!(
+                f,
+                "Restart Manager session limit reached; too many concurrent sessions"
+            ),
             Self::RegisterResources(code) => {
                 write!(
                     f,
@@ -88,6 +91,8 @@ impl RestartManagerSession {
             unsafe { RmStartSession(&mut handle, Some(0), PWSTR(session_key.as_mut_ptr())) };
         if result == ERROR_SUCCESS {
             Ok(Self { handle })
+        } else if result == ERROR_MAX_SESSIONS_REACHED {
+            Err(RestartManagerQueryError::MaxSessionsReached)
         } else {
             Err(RestartManagerQueryError::StartSession(result))
         }
@@ -352,12 +357,10 @@ pub fn get_processes_locking_files(
         .map(|path| PCWSTR(path.as_ptr()))
         .collect();
 
-    for chunk in path_ptrs.chunks(RM_REGISTER_BATCH_SIZE) {
-        let register_result =
-            unsafe { RmRegisterResources(session.handle, Some(chunk), None, None) };
-        if register_result != ERROR_SUCCESS {
-            return Err(RestartManagerQueryError::RegisterResources(register_result));
-        }
+    let register_result =
+        unsafe { RmRegisterResources(session.handle, Some(&path_ptrs), None, None) };
+    if register_result != ERROR_SUCCESS {
+        return Err(RestartManagerQueryError::RegisterResources(register_result));
     }
 
     let affected_processes = get_restart_manager_processes(session.handle)?;

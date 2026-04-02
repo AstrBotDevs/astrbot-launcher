@@ -47,6 +47,8 @@ pub struct AppConfig {
     pub persist_instance_state: bool,
     #[serde(default)]
     pub ignore_external_path: bool,
+    #[serde(default)]
+    pub lock_check_extension_whitelist: bool,
 }
 
 impl Default for AppConfig {
@@ -66,6 +68,7 @@ impl Default for AppConfig {
             check_instance_update: true,
             persist_instance_state: false,
             ignore_external_path: false,
+            lock_check_extension_whitelist: false,
         }
     }
 }

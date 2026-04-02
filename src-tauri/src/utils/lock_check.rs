@@ -4,9 +4,21 @@ use std::path::{Path, PathBuf};
 use crate::error::AppError;
 use crate::error::Result;
 #[cfg(target_os = "windows")]
-use crate::process::win_api::{get_processes_locking_files, LockingProcessInfo};
+use crate::process::win_api::{
+    get_processes_locking_files, LockingProcessInfo, RestartManagerQueryError,
+};
 #[cfg(target_os = "windows")]
 use walkdir::WalkDir;
+
+/// Directory names to skip when collecting files for lock checks.
+#[cfg(target_os = "windows")]
+const SKIP_DIRS: &[&str] = &[".git", "node_modules", "dist", "__pycache__"];
+/// When extension whitelist mode is enabled, only files with these extensions are registered.
+#[cfg(target_os = "windows")]
+const EXTENSION_WHITELIST: &[&str] = &[
+    "py", "js", "ts", "db", "db-shm", "db-wal", "json", "md", "html", "sh", "ps1", "bat", "cmd",
+    "fish",
+];
 
 #[cfg(target_os = "windows")]
 pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -14,19 +26,41 @@ pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
         return Ok(Vec::new());
     }
 
+    let use_whitelist = crate::config::load_config()
+        .map(|c| c.lock_check_extension_whitelist)
+        .unwrap_or(false);
+
     let mut files = Vec::new();
     let mut iter = WalkDir::new(dir).into_iter();
     while let Some(entry) = iter.next() {
         let entry = entry.map_err(|e| AppError::io(e.to_string()))?;
         let path = entry.path();
 
-        if entry.file_type().is_dir() && entry.file_name() == "__pycache__" {
+        if entry.file_type().is_dir()
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| SKIP_DIRS.contains(&name))
+        {
             iter.skip_current_dir();
             continue;
         }
 
-        if entry.file_type().is_file() && path.extension().map(|ext| ext != "pyc").unwrap_or(true) {
-            files.push(entry.into_path());
+        if entry.file_type().is_file() {
+            let ext_match = if use_whitelist {
+                path.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|ext| {
+                        EXTENSION_WHITELIST
+                            .iter()
+                            .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+                    })
+            } else {
+                path.extension().map(|ext| ext != "pyc").unwrap_or(true)
+            };
+            if ext_match {
+                files.push(entry.into_path());
+            }
         }
     }
 
@@ -64,7 +98,11 @@ fn format_locking_process(process: &LockingProcessInfo) -> String {
 pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
     let locking_processes = get_processes_locking_files(target_files).map_err(|e| {
         log::warn!("Failed to query locking processes: {}", e);
-        AppError::process_locking("目标路径占用状态检测失败")
+        if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
+            AppError::process_locking("系统 Restart Manager 会话数已达上限")
+        } else {
+            AppError::process_locking("目标路径占用状态检测失败")
+        }
     })?;
     if locking_processes.is_empty() {
         return Ok(());

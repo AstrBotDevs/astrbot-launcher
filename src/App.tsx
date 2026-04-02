@@ -154,10 +154,7 @@ function App({ isMacOS }: { isMacOS: boolean }) {
         },
       }}
     >
-      <AntdApp
-        message={{ top: titlebarOffset + 8 }}
-        notification={{ top: titlebarOffset + 8 }}
-      >
+      <AntdApp message={{ top: titlebarOffset + 8 }} notification={{ top: titlebarOffset + 8 }}>
         <AntdStaticProvider />
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
           {!isMacOS && <TitleBar />}

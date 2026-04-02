@@ -30,9 +30,16 @@ export function MarkdownContent({ children, containerStyle, fallback }: Markdown
           components={{
             h1: ({ children: c }) => <h3 style={{ marginBottom: 4 }}>{c}</h3>,
             h2: ({ children: c }) => <h4 style={{ marginBottom: 4 }}>{c}</h4>,
-            h3: ({ children: c }) => <strong style={{ display: 'block', marginTop: 8, marginBottom: 2 }}>{c}</strong>,
+            h3: ({ children: c }) => (
+              <strong style={{ display: 'block', marginTop: 8, marginBottom: 2 }}>{c}</strong>
+            ),
             a: ({ href, children: c }) => (
-              <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: token.colorPrimary }}>
+              <a
+                href={href}
+                target="_blank"
+                rel="noreferrer noopener"
+                style={{ color: token.colorPrimary }}
+              >
                 {c}
               </a>
             ),
@@ -44,7 +51,7 @@ export function MarkdownContent({ children, containerStyle, fallback }: Markdown
           {children}
         </ReactMarkdown>
       ) : (
-        fallback ?? null
+        (fallback ?? null)
       )}
     </div>
   );

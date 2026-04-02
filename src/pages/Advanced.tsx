@@ -306,6 +306,14 @@ export default function Advanced() {
     });
   };
 
+  const handleLockCheckExtensionWhitelistChange = async (checked: boolean) => {
+    await handleSaveSetting({
+      key: OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist,
+      save: () => api.saveLockCheckExtensionWhitelist(checked),
+      successMessage: '设置已保存',
+    });
+  };
+
   const handleClearInstance = async ({
     selectedId,
     operationKey,
@@ -402,6 +410,8 @@ export default function Advanced() {
     : false;
   const ignoreExternalPathSaving =
     operations[OPERATION_KEYS.advancedSaveIgnoreExternalPath] || false;
+  const lockCheckExtensionWhitelistSaving =
+    operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
 
   const getConfirmLoading = () => {
     switch (confirmModal) {
@@ -460,12 +470,14 @@ export default function Advanced() {
         uvInstalled={uvInstalled}
         useUvSaving={useUvSaving}
         mainlandAccelerationSaving={mainlandAccelerationSaving}
+        lockCheckExtensionWhitelistSaving={lockCheckExtensionWhitelistSaving}
         onCloseToTrayChange={handleCloseToTrayChange}
         onCheckInstanceUpdateChange={handleCheckInstanceUpdateChange}
         onPersistInstanceStateChange={handlePersistInstanceStateChange}
         onAutostartChange={handleAutostartChange}
         onUseUvForDepsChange={handleUseUvForDepsChange}
         onMainlandAccelerationChange={handleMainlandAccelerationChange}
+        onLockCheckExtensionWhitelistChange={handleLockCheckExtensionWhitelistChange}
       />
 
       <ProxySettingsCard

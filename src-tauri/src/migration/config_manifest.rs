@@ -75,6 +75,7 @@ impl LegacyAppConfig {
             check_instance_update: self.check_instance_update,
             persist_instance_state: self.persist_instance_state,
             ignore_external_path: self.ignore_external_path,
+            lock_check_extension_whitelist: false,
         }
     }
 

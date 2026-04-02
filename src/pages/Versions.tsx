@@ -388,7 +388,12 @@ export default function Versions() {
             <div style={{ marginTop: 16 }}>
               <Text strong>发布说明:</Text>
               <MarkdownContent
-                containerStyle={{ marginTop: 8, padding: '4px 12px', maxHeight: 400, overflow: 'auto' }}
+                containerStyle={{
+                  marginTop: 8,
+                  padding: '4px 12px',
+                  maxHeight: 400,
+                  overflow: 'auto',
+                }}
                 fallback={<Text type="secondary">无发布说明</Text>}
               >
                 {detailRelease.body}
