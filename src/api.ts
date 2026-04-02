@@ -33,6 +33,8 @@ export const api = {
     invoke<void>('save_ignore_external_path', { ignoreExternalPath }),
   saveMainlandAcceleration: (mainlandAcceleration: boolean) =>
     invoke<void>('save_mainland_acceleration', { mainlandAcceleration }),
+  saveLockCheckExtensionWhitelist: (lockCheckExtensionWhitelist: boolean) =>
+    invoke<void>('save_lock_check_extension_whitelist', { lockCheckExtensionWhitelist }),
 
   // ========================================
   // Components

@@ -25,6 +25,7 @@ export const OPERATION_KEYS = {
   advancedSaveMainlandAcceleration: 'adv:save-mainland-acceleration',
   advancedSaveAutostart: 'adv:save-autostart',
   advancedSaveUseUvForDeps: 'adv:save-use-uv-for-deps',
+  advancedSaveLockCheckExtensionWhitelist: 'adv:save-lock-check-extension-whitelist',
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,
   advancedClearVenv: (instanceId: string) => `adv:venv-${instanceId}`,
   advancedClearPycache: (instanceId: string) => `adv:pycache-${instanceId}`,

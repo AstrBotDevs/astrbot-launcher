@@ -26,6 +26,7 @@ export interface AppConfig {
   check_instance_update: boolean;
   persist_instance_state: boolean;
   ignore_external_path: boolean;
+  lock_check_extension_whitelist: boolean;
 }
 
 // ========================================
