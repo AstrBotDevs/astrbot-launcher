@@ -11,8 +11,10 @@ use crate::process::win_api::{
 use walkdir::WalkDir;
 
 /// Directory names to skip when collecting files for lock checks.
+#[cfg(target_os = "windows")]
 const SKIP_DIRS: &[&str] = &[".git", "node_modules", "dist", "__pycache__"];
 /// When extension whitelist mode is enabled, only files with these extensions are registered.
+#[cfg(target_os = "windows")]
 const EXTENSION_WHITELIST: &[&str] = &[
     "py", "js", "ts", "db", "db-shm", "db-wal", "json", "md", "html", "sh", "ps1", "bat", "cmd",
     "fish",
