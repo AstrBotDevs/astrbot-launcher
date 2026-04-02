@@ -29,6 +29,7 @@
     "@tauri-apps/plugin-window-state": "~2.4.1",
     "ansi-to-react": "^6.2.6",
     "antd": "^6.3.4",
+    "dompurify": "^3.3.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",

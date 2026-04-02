@@ -4,6 +4,7 @@ import { ClearOutlined } from '@ant-design/icons';
 import Ansi from 'ansi-to-react';
 import { PageHeader } from '../components';
 import { useAppStore, useLogStore, type LogLevelFilter } from '../stores';
+import { sanitizeHtml } from '../utils';
 
 const { Content } = Layout;
 
@@ -117,7 +118,7 @@ export default function Logs() {
             <Flex vertical gap={0}>
               {logs.map((entry, i) => (
                 <div key={`${entry.timestamp}-${i}`}>
-                  <Ansi>{entry.message}</Ansi>
+                  <Ansi>{sanitizeHtml(entry.message)}</Ansi>
                 </div>
               ))}
             </Flex>

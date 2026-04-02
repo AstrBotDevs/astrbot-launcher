@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { theme } from 'antd';
+import { sanitizeUrl } from '../utils';
 
 interface MarkdownContentProps {
   children?: string | null;
@@ -31,11 +32,16 @@ export function MarkdownContent({ children, containerStyle, fallback }: Markdown
             h1: ({ children: c }) => <h3 style={{ marginBottom: 4 }}>{c}</h3>,
             h2: ({ children: c }) => <h4 style={{ marginBottom: 4 }}>{c}</h4>,
             h3: ({ children: c }) => <strong style={{ display: 'block', marginTop: 8, marginBottom: 2 }}>{c}</strong>,
-            a: ({ href, children: c }) => (
-              <a href={href} target="_blank" rel="noreferrer noopener" style={{ color: token.colorPrimary }}>
-                {c}
-              </a>
-            ),
+            a: ({ href, children: c }) => {
+              const safeHref = sanitizeUrl(href);
+              return safeHref ? (
+                <a href={safeHref} target="_blank" rel="noreferrer noopener" style={{ color: token.colorPrimary }}>
+                  {c}
+                </a>
+              ) : (
+                <span>{c}</span>
+              );
+            },
             p: ({ children: c }) => <p style={{ margin: '2px 0' }}>{c}</p>,
             ul: ({ children: c }) => <ul style={{ paddingLeft: 20, margin: '4px 0' }}>{c}</ul>,
             li: ({ children: c }) => <li style={{ marginBottom: 2 }}>{c}</li>,
