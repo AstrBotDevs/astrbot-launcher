@@ -27,8 +27,6 @@ use windows::Win32::System::Threading::{
 
 /// Maximum number of retries when the TCP table changes between size query and data fetch.
 const TCP_TABLE_MAX_RETRIES: usize = 4;
-/// Number of files registered in each Restart Manager batch.
-const RM_REGISTER_BATCH_SIZE: usize = 256;
 /// Maximum retries when Restart Manager list changes between calls.
 const RM_GET_LIST_MAX_RETRIES: usize = 4;
 
@@ -352,12 +350,10 @@ pub fn get_processes_locking_files(
         .map(|path| PCWSTR(path.as_ptr()))
         .collect();
 
-    for chunk in path_ptrs.chunks(RM_REGISTER_BATCH_SIZE) {
-        let register_result =
-            unsafe { RmRegisterResources(session.handle, Some(chunk), None, None) };
-        if register_result != ERROR_SUCCESS {
-            return Err(RestartManagerQueryError::RegisterResources(register_result));
-        }
+    let register_result =
+        unsafe { RmRegisterResources(session.handle, Some(&path_ptrs), None, None) };
+    if register_result != ERROR_SUCCESS {
+        return Err(RestartManagerQueryError::RegisterResources(register_result));
     }
 
     let affected_processes = get_restart_manager_processes(session.handle)?;
