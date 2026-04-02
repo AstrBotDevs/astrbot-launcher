@@ -8,6 +8,9 @@ use crate::process::win_api::{get_processes_locking_files, LockingProcessInfo, R
 #[cfg(target_os = "windows")]
 use walkdir::WalkDir;
 
+/// Directory names to skip when collecting files for lock checks.
+const SKIP_DIRS: &[&str] = &[".git", "node_modules", "dist", "__pycache__"];
+
 #[cfg(target_os = "windows")]
 pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
     if !dir.exists() {
@@ -20,7 +23,12 @@ pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
         let entry = entry.map_err(|e| AppError::io(e.to_string()))?;
         let path = entry.path();
 
-        if entry.file_type().is_dir() && entry.file_name() == "__pycache__" {
+        if entry.file_type().is_dir()
+            && entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| SKIP_DIRS.contains(&name))
+        {
             iter.skip_current_dir();
             continue;
         }
