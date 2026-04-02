@@ -51,7 +51,9 @@ pub(crate) fn collect_files_for_lock_check(dir: &Path) -> Result<Vec<PathBuf>> {
                 path.extension()
                     .and_then(|e| e.to_str())
                     .is_some_and(|ext| {
-                        EXTENSION_WHITELIST.contains(&ext.to_ascii_lowercase().as_str())
+                        EXTENSION_WHITELIST
+                            .iter()
+                            .any(|allowed| allowed.eq_ignore_ascii_case(ext))
                     })
             } else {
                 path.extension().map(|ext| ext != "pyc").unwrap_or(true)
