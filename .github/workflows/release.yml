@@ -9,7 +9,7 @@ jobs:
   prepare-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     outputs:
       release_body: ${{ steps.build-release-body.outputs.release_body }}
     steps:
