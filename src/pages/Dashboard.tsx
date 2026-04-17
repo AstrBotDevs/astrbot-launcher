@@ -8,7 +8,7 @@ import type { InstanceStatus, GitHubRelease } from '../types';
 import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import { useAppStore } from '../stores';
 import { DeployProgressModal, ConfirmModal, EditInstanceModal, PageHeader } from '../components';
-import { handleApiError } from '../utils';
+import { handleApiError, parseProcessLockingError } from '../utils';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 import { buildDashboardColumns } from './dashboardColumns';
 
@@ -20,6 +20,26 @@ type InstanceActionOptions<T> = {
   onSkipped?: () => void;
   onError?: () => void;
 };
+
+type PendingUpgradeEdit = {
+  instanceId: string;
+  name: string;
+  version: string;
+  port: number;
+};
+
+type UpgradeLockModalState =
+  | {
+      mode: 'checkFailed';
+      pending: PendingUpgradeEdit;
+      detail: string;
+      lockingProcesses: string[];
+    }
+  | {
+      mode: 'locked';
+      detail: string;
+      lockingProcesses: string[];
+    };
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -49,6 +69,7 @@ export default function Dashboard() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editingInstance, setEditingInstance] = useState<InstanceStatus | null>(null);
   const [instanceToDelete, setInstanceToDelete] = useState<InstanceStatus | null>(null);
+  const [upgradeLockModal, setUpgradeLockModal] = useState<UpgradeLockModalState | null>(null);
 
   // Forms
   const [createForm] = Form.useForm();
@@ -129,19 +150,19 @@ export default function Dashboard() {
     [createForm, runOperation]
   );
 
-  const handleEdit = useCallback(
-    async (values: { name: string; version: string; port?: number }) => {
-      if (!editingInstance) return;
-
+  const runInstanceEdit = useCallback(
+    async (payload: PendingUpgradeEdit, options?: { skipLockCheck?: boolean }) => {
+      const skipLockCheck = options?.skipLockCheck ?? false;
       let deployStarted = false;
+
       await runOperation({
-        key: OPERATION_KEYS.instance(editingInstance.id),
+        key: OPERATION_KEYS.instance(payload.instanceId),
         reloadBefore: true,
         task: async () => {
           const { instances: latestInstances, versions: latestVersions } = useAppStore.getState();
           const latestInstance = findLatestOrSkip(
             latestInstances,
-            (i) => i.id === editingInstance.id,
+            (i) => i.id === payload.instanceId,
             '实例不存在或已被删除'
           );
           if (latestInstance === SKIP_OPERATION) {
@@ -150,13 +171,21 @@ export default function Dashboard() {
             return SKIP_OPERATION;
           }
 
-          if (!latestVersions.some((v) => v.version === values.version)) {
+          if (!latestVersions.some((v) => v.version === payload.version)) {
             message.warning('所选版本不存在，请先刷新后重试');
             return SKIP_OPERATION;
           }
 
-          if (values.version !== latestInstance.version) {
-            const cmp = await api.compareVersions(values.version, latestInstance.version);
+          const versionChanged = payload.version !== latestInstance.version;
+          if (versionChanged && !skipLockCheck) {
+            await api.checkLock({
+              target: 'instance_upgrade',
+              instanceId: latestInstance.id,
+            });
+          }
+
+          if (versionChanged) {
+            const cmp = await api.compareVersions(payload.version, latestInstance.version);
             const deployType = cmp > 0 ? 'upgrade' : 'downgrade';
             startDeploy(latestInstance.name, deployType);
             deployStarted = true;
@@ -166,16 +195,38 @@ export default function Dashboard() {
           setEditingInstance(null);
           await api.updateInstance(
             latestInstance.id,
-            values.name,
-            values.version,
-            values.port ?? 0
+            payload.name,
+            payload.version,
+            payload.port
           );
         },
         onSuccess: () => {
+          setUpgradeLockModal(null);
           message.success(STATUS_MESSAGES.INSTANCE_UPDATED);
           // done event from backend auto-closes the modal via event listener
         },
         onError: (error) => {
+          const lockCheckError = parseProcessLockingError(error);
+          if (lockCheckError && !deployStarted) {
+            setEditOpen(false);
+            setEditingInstance(null);
+            if (lockCheckError.canContinue) {
+              setUpgradeLockModal({
+                mode: 'checkFailed',
+                pending: payload,
+                detail: lockCheckError.detail,
+                lockingProcesses: lockCheckError.lockingProcesses,
+              });
+            } else {
+              setUpgradeLockModal({
+                mode: 'locked',
+                detail: lockCheckError.detail,
+                lockingProcesses: lockCheckError.lockingProcesses,
+              });
+            }
+            return;
+          }
+
           handleApiError(error);
           if (deployStarted) {
             closeDeploy();
@@ -183,8 +234,29 @@ export default function Dashboard() {
         },
       });
     },
-    [editingInstance, startDeploy, closeDeploy, runOperation]
+    [startDeploy, closeDeploy, runOperation]
   );
+
+  const handleEdit = useCallback(
+    async (values: { name: string; version: string; port?: number }) => {
+      if (!editingInstance) return;
+
+      await runInstanceEdit({
+        instanceId: editingInstance.id,
+        name: values.name,
+        version: values.version,
+        port: values.port ?? 0,
+      });
+    },
+    [editingInstance, runInstanceEdit]
+  );
+
+  const handleContinueUpgradeAfterLockCheckFailure = useCallback(async () => {
+    if (!upgradeLockModal || upgradeLockModal.mode !== 'checkFailed') {
+      return;
+    }
+    await runInstanceEdit(upgradeLockModal.pending, { skipLockCheck: true });
+  }, [upgradeLockModal, runInstanceEdit]);
 
   const executeInstanceAction = useCallback(
     async <T,>({
@@ -377,6 +449,10 @@ export default function Dashboard() {
     label: v.version,
     value: v.version,
   }));
+  const upgradeLockModalLoading =
+    upgradeLockModal?.mode === 'checkFailed'
+      ? operations[OPERATION_KEYS.instance(upgradeLockModal.pending.instanceId)] || false
+      : false;
 
   // ========================================
   // Render
@@ -478,6 +554,40 @@ export default function Dashboard() {
           setDeleteOpen(false);
           setInstanceToDelete(null);
         }}
+      />
+
+      <ConfirmModal
+        open={upgradeLockModal !== null}
+        title={upgradeLockModal?.mode === 'locked' ? '目标路径被占用' : '目标路径占用检测失败'}
+        danger={upgradeLockModal?.mode === 'locked'}
+        okText={upgradeLockModal?.mode === 'checkFailed' ? '继续操作' : '我知道了'}
+        loading={upgradeLockModalLoading}
+        content={
+          <>
+            <p>{upgradeLockModal?.detail}</p>
+            {upgradeLockModal?.lockingProcesses?.length ? (
+              <div>
+                <p>检测到以下进程正在占用目标路径:</p>
+                {upgradeLockModal.lockingProcesses.map((process, index) => (
+                  <p key={`${process}-${index}`}>
+                    {index + 1}. {process}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {upgradeLockModal?.mode === 'checkFailed' ? (
+              <p>可选择继续执行本次操作，或取消后稍后重试。</p>
+            ) : (
+              <p>请关闭相关进程后重试。</p>
+            )}
+          </>
+        }
+        onConfirm={
+          upgradeLockModal?.mode === 'checkFailed'
+            ? () => void handleContinueUpgradeAfterLockCheckFailure()
+            : () => setUpgradeLockModal(null)
+        }
+        onCancel={() => setUpgradeLockModal(null)}
       />
 
       {/* Deploy Progress Modal */}

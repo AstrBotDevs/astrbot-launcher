@@ -13,7 +13,6 @@ use crate::archive::{extract_tar_gz_mapped, extract_zip_mapped};
 use crate::config::{load_manifest, with_manifest_mut, BackupInfo, BackupMetadata, InstanceConfig};
 use crate::error::{AppError, Result};
 use crate::utils::archive_path::parse_entry_rel_path;
-use crate::utils::lock_check::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::paths::{get_backups_dir, get_instance_core_dir, get_instance_dir};
 use crate::utils::validation::validate_instance_id;
 use crate::validation::resolve_backup_path;
@@ -158,8 +157,6 @@ pub fn create_backup(instance_id: &str, auto_generated: bool) -> Result<String> 
     if !data_dir.exists() {
         return Err(AppError::backup("No data directory to back up"));
     }
-    let data_files = collect_files_for_lock_check(&data_dir)?;
-    ensure_target_not_locked(&data_files)?;
 
     create_backup_archive(instance, instance_id, auto_generated)
 }
@@ -396,6 +393,7 @@ pub fn resolve_restore_backup_input(backup_path: &str) -> Result<(PathBuf, Backu
     Ok((backup_path, metadata))
 }
 
+/// Restore backup.
 pub fn restore_backup_with_input(backup_path: PathBuf, metadata: BackupMetadata) -> Result<()> {
     // Check if version is installed
     let manifest = load_manifest()?;
@@ -415,9 +413,6 @@ pub fn restore_backup_with_input(backup_path: PathBuf, metadata: BackupMetadata)
 
     let instance_dir = get_instance_dir(instance_id);
     let core_dir = get_instance_core_dir(instance_id);
-    let data_dir = core_dir.join("data");
-    let data_files = collect_files_for_lock_check(&data_dir)?;
-    ensure_target_not_locked(&data_files)?;
 
     // Extract backup to existing instance
     extract_backup_to_instance(&backup_path, &instance_dir, &core_dir)?;
@@ -498,9 +493,6 @@ pub fn restore_data_to_instance(backup_path: &str, instance_id: &str) -> Result<
     let backup_path = resolve_backup_path(backup_path, true)?;
     let metadata = read_backup_metadata(&backup_path)?;
     let core_dir = get_instance_core_dir(instance_id);
-    let data_dir = core_dir.join("data");
-    let data_files = collect_files_for_lock_check(&data_dir)?;
-    ensure_target_not_locked(&data_files)?;
 
     let routing = |raw_path: &str| -> Option<PathBuf> {
         let relative = parse_entry_rel_path(raw_path)?;

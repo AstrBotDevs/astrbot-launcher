@@ -8,8 +8,30 @@ import { useAppStore } from '../stores';
 import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
 import { ConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
+import { handleApiError, parseProcessLockingError } from '../utils';
 
 const { Text } = Typography;
+
+type LockCheckModalState =
+  | {
+      mode: 'checkFailed';
+      action: 'create';
+      instanceId: string;
+      detail: string;
+      lockingProcesses: string[];
+    }
+  | {
+      mode: 'checkFailed';
+      action: 'restore';
+      backupPath: string;
+      detail: string;
+      lockingProcesses: string[];
+    }
+  | {
+      mode: 'locked';
+      detail: string;
+      lockingProcesses: string[];
+    };
 
 export default function Backup() {
   const instances = useAppStore((s) => s.instances);
@@ -24,9 +46,10 @@ export default function Backup() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<BackupInfo | null>(null);
   const [backupToDelete, setBackupToDelete] = useState<BackupInfo | null>(null);
+  const [lockCheckModal, setLockCheckModal] = useState<LockCheckModalState | null>(null);
   const [createForm] = Form.useForm();
 
-  const handleCreate = async (values: { instanceId: string }) => {
+  const runCreateBackup = async (instanceId: string, skipLockCheck: boolean = false) => {
     const key = OPERATION_KEYS.backupCreate;
     await runOperation({
       key,
@@ -35,7 +58,7 @@ export default function Backup() {
         const { instances: latestInstances } = useAppStore.getState();
         const latestInstance = findLatestOrSkip(
           latestInstances,
-          (i) => i.id === values.instanceId,
+          (i) => i.id === instanceId,
           '实例不存在或已被删除'
         );
         if (latestInstance === SKIP_OPERATION) {
@@ -46,19 +69,50 @@ export default function Backup() {
           return SKIP_OPERATION;
         }
 
-        await api.createBackup(values.instanceId);
+        if (!skipLockCheck) {
+          await api.checkLock({ target: 'backup_create', instanceId });
+        }
+        await api.createBackup(instanceId);
       },
       onSuccess: () => {
         message.success('备份创建成功');
         setCreateOpen(false);
+        setLockCheckModal(null);
         createForm.resetFields();
+      },
+      onError: (error) => {
+        const lockCheckError = parseProcessLockingError(error);
+        if (!lockCheckError) {
+          handleApiError(error);
+          return;
+        }
+
+        setCreateOpen(false);
+        if (lockCheckError.canContinue) {
+          setLockCheckModal({
+            mode: 'checkFailed',
+            action: 'create',
+            instanceId,
+            detail: lockCheckError.detail,
+            lockingProcesses: lockCheckError.lockingProcesses,
+          });
+          return;
+        }
+
+        setLockCheckModal({
+          mode: 'locked',
+          detail: lockCheckError.detail,
+          lockingProcesses: lockCheckError.lockingProcesses,
+        });
       },
     });
   };
 
-  const handleRestore = async () => {
-    if (!selectedBackup) return;
+  const handleCreate = async (values: { instanceId: string }) => {
+    await runCreateBackup(values.instanceId);
+  };
 
+  const runRestoreBackup = async (backupPath: string, skipLockCheck: boolean = false) => {
     const key = OPERATION_KEYS.backupRestore;
     await runOperation({
       key,
@@ -67,7 +121,7 @@ export default function Backup() {
         const { backups: latestBackups, instances: latestInstances } = useAppStore.getState();
         const latestBackup = findLatestOrSkip(
           latestBackups,
-          (b) => b.path === selectedBackup.path,
+          (b) => b.path === backupPath,
           '备份不存在或已被删除'
         );
         if (latestBackup === SKIP_OPERATION) {
@@ -91,14 +145,49 @@ export default function Backup() {
           return SKIP_OPERATION;
         }
 
+        if (!skipLockCheck) {
+          await api.checkLock({ target: 'backup_restore', backupPath: latestBackup.path });
+        }
         await api.restoreBackup(latestBackup.path);
       },
       onSuccess: () => {
         message.success('备份恢复成功');
         setRestoreOpen(false);
         setSelectedBackup(null);
+        setLockCheckModal(null);
+      },
+      onError: (error) => {
+        const lockCheckError = parseProcessLockingError(error);
+        if (!lockCheckError) {
+          handleApiError(error);
+          return;
+        }
+
+        setRestoreOpen(false);
+        setSelectedBackup(null);
+        if (lockCheckError.canContinue) {
+          setLockCheckModal({
+            mode: 'checkFailed',
+            action: 'restore',
+            backupPath,
+            detail: lockCheckError.detail,
+            lockingProcesses: lockCheckError.lockingProcesses,
+          });
+          return;
+        }
+
+        setLockCheckModal({
+          mode: 'locked',
+          detail: lockCheckError.detail,
+          lockingProcesses: lockCheckError.lockingProcesses,
+        });
       },
     });
+  };
+
+  const handleRestore = async () => {
+    if (!selectedBackup) return;
+    await runRestoreBackup(selectedBackup.path);
   };
 
   const handleDelete = async () => {
@@ -141,8 +230,27 @@ export default function Backup() {
     setDeleteOpen(true);
   };
 
+  const handleContinueAfterLockCheckFailure = async () => {
+    if (!lockCheckModal || lockCheckModal.mode !== 'checkFailed') return;
+
+    if (lockCheckModal.action === 'create') {
+      await runCreateBackup(lockCheckModal.instanceId, true);
+      return;
+    }
+
+    await runRestoreBackup(lockCheckModal.backupPath, true);
+  };
+
   const stoppedInstances = instances.filter((i) => i.state === 'stopped');
   const isAutoGeneratedBackup = (backup: BackupInfo) => !!backup.metadata.auto_generated;
+  const lockCheckModalLoading =
+    lockCheckModal?.mode === 'checkFailed'
+      ? operations[
+          lockCheckModal.action === 'create'
+            ? OPERATION_KEYS.backupCreate
+            : OPERATION_KEYS.backupRestore
+        ] || false
+      : false;
 
   // 所有实例的选项，运行中的实例标记为禁用
   const instanceOptions = instances.map((i) => ({
@@ -308,6 +416,40 @@ export default function Backup() {
           setDeleteOpen(false);
           setBackupToDelete(null);
         }}
+      />
+
+      <ConfirmModal
+        open={lockCheckModal !== null}
+        title={lockCheckModal?.mode === 'locked' ? '目标路径被占用' : '目标路径占用检测失败'}
+        danger={lockCheckModal?.mode === 'locked'}
+        okText={lockCheckModal?.mode === 'checkFailed' ? '继续操作' : '我知道了'}
+        loading={lockCheckModalLoading}
+        content={
+          <>
+            <p>{lockCheckModal?.detail}</p>
+            {lockCheckModal?.lockingProcesses?.length ? (
+              <div>
+                <p>检测到以下进程正在占用目标路径:</p>
+                {lockCheckModal.lockingProcesses.map((process, index) => (
+                  <p key={`${process}-${index}`}>
+                    {index + 1}. {process}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {lockCheckModal?.mode === 'checkFailed' ? (
+              <p>可选择继续执行本次操作，或取消后稍后重试。</p>
+            ) : (
+              <p>请关闭相关进程后重试。</p>
+            )}
+          </>
+        }
+        onConfirm={
+          lockCheckModal?.mode === 'checkFailed'
+            ? () => void handleContinueAfterLockCheckFailure()
+            : () => setLockCheckModal(null)
+        }
+        onCancel={() => setLockCheckModal(null)}
       />
     </>
   );

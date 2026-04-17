@@ -133,6 +133,7 @@ pub fn run() {
             commands::install_version,
             commands::uninstall_version,
             // Troubleshooting
+            commands::check_lock,
             commands::clear_instance_data,
             commands::clear_instance_venv,
             commands::clear_pycache,

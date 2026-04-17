@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-#[cfg(target_os = "windows")]
-use crate::error::AppError;
 use crate::error::Result;
+#[cfg(target_os = "windows")]
+use crate::error::{AppError, ErrorKind};
 #[cfg(target_os = "windows")]
 use crate::process::win_api::{
     get_processes_locking_files, LockingProcessInfo, RestartManagerQueryError,
@@ -96,14 +97,32 @@ fn format_locking_process(process: &LockingProcessInfo) -> String {
 /// Single batch Restart Manager query for all files.
 #[cfg(target_os = "windows")]
 pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
-    let locking_processes = get_processes_locking_files(target_files).map_err(|e| {
-        log::warn!("Failed to query locking processes: {}", e);
-        if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
-            AppError::process_locking("系统 Restart Manager 会话数已达上限")
-        } else {
-            AppError::process_locking("目标路径占用状态检测失败")
+    let locking_processes = match get_processes_locking_files(target_files) {
+        Ok(locking_processes) => locking_processes,
+        Err(e) => {
+            log::warn!("Failed to query locking processes: {}", e);
+            let detail = if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
+                "系统 Restart Manager 会话数已达上限，无法检测占用状态"
+            } else {
+                "目标路径占用状态检测失败"
+            };
+
+            let mut payload = HashMap::from([
+                ("detail".to_string(), detail.to_string()),
+                ("reason".to_string(), "check_failed".to_string()),
+                ("can_continue".to_string(), "true".to_string()),
+                ("query_error".to_string(), e.to_string()),
+            ]);
+            if matches!(e, RestartManagerQueryError::MaxSessionsReached) {
+                payload.insert(
+                    "check_failure_kind".to_string(),
+                    "max_sessions_reached".to_string(),
+                );
+            }
+
+            return Err(AppError::new(ErrorKind::ProcessLocking, payload));
         }
-    })?;
+    };
     if locking_processes.is_empty() {
         return Ok(());
     }
@@ -113,8 +132,20 @@ pub(crate) fn ensure_target_not_locked(target_files: &[PathBuf]) -> Result<()> {
         .map(format_locking_process)
         .collect();
     log::warn!("Target files are locked by: {}", process_items.join("；"));
-    Err(AppError::process_locking(
-        "目标路径被占用，请关闭相关进程后重试，请前往日志页面查看详情。",
+    Err(AppError::new(
+        ErrorKind::ProcessLocking,
+        HashMap::from([
+            (
+                "detail".to_string(),
+                "目标路径被占用，请关闭相关进程后重试".to_string(),
+            ),
+            ("reason".to_string(), "locked".to_string()),
+            ("can_continue".to_string(), "false".to_string()),
+            (
+                "locking_processes".to_string(),
+                serde_json::to_string(&process_items).unwrap_or_else(|_| "[]".to_string()),
+            ),
+        ]),
     ))
 }
 
