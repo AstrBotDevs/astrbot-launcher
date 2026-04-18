@@ -5,32 +5,21 @@ import { api } from '../api';
 import type { BackupInfo } from '../types';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
-import { ConfirmModal, PageHeader } from '../components';
+import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner, useLockCheckModal } from '../hooks';
+import { ConfirmModal, LockCheckConfirmModal, PageHeader } from '../components';
 import { OPERATION_KEYS } from '../constants';
-import { handleApiError, parseProcessLockingError } from '../utils';
+import { handleApiError } from '../utils';
 
 const { Text } = Typography;
 
-type LockCheckModalState =
+type BackupLockCheckPayload =
   | {
-      mode: 'checkFailed';
       action: 'create';
       instanceId: string;
-      detail: string;
-      lockingProcesses: string[];
     }
   | {
-      mode: 'checkFailed';
       action: 'restore';
       backupPath: string;
-      detail: string;
-      lockingProcesses: string[];
-    }
-  | {
-      mode: 'locked';
-      detail: string;
-      lockingProcesses: string[];
     };
 
 export default function Backup() {
@@ -46,7 +35,8 @@ export default function Backup() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [selectedBackup, setSelectedBackup] = useState<BackupInfo | null>(null);
   const [backupToDelete, setBackupToDelete] = useState<BackupInfo | null>(null);
-  const [lockCheckModal, setLockCheckModal] = useState<LockCheckModalState | null>(null);
+  const { lockCheckModal, closeLockCheckModal, handleLockCheckError } =
+    useLockCheckModal<BackupLockCheckPayload>();
   const [createForm] = Form.useForm();
 
   const runCreateBackup = async (instanceId: string, skipLockCheck: boolean = false) => {
@@ -77,33 +67,22 @@ export default function Backup() {
       onSuccess: () => {
         message.success('备份创建成功');
         setCreateOpen(false);
-        setLockCheckModal(null);
+        closeLockCheckModal();
         createForm.resetFields();
       },
       onError: (error) => {
-        const lockCheckError = parseProcessLockingError(error);
-        if (!lockCheckError) {
-          handleApiError(error);
-          return;
-        }
-
-        setCreateOpen(false);
-        if (lockCheckError.canContinue) {
-          setLockCheckModal({
-            mode: 'checkFailed',
+        const handled = handleLockCheckError(error, {
+          checkFailedPayload: {
             action: 'create',
             instanceId,
-            detail: lockCheckError.detail,
-            lockingProcesses: lockCheckError.lockingProcesses,
-          });
-          return;
-        }
-
-        setLockCheckModal({
-          mode: 'locked',
-          detail: lockCheckError.detail,
-          lockingProcesses: lockCheckError.lockingProcesses,
+          },
+          onLockCheckError: () => {
+            setCreateOpen(false);
+          },
         });
+        if (!handled) {
+          handleApiError(error);
+        }
       },
     });
   };
@@ -154,33 +133,22 @@ export default function Backup() {
         message.success('备份恢复成功');
         setRestoreOpen(false);
         setSelectedBackup(null);
-        setLockCheckModal(null);
+        closeLockCheckModal();
       },
       onError: (error) => {
-        const lockCheckError = parseProcessLockingError(error);
-        if (!lockCheckError) {
-          handleApiError(error);
-          return;
-        }
-
-        setRestoreOpen(false);
-        setSelectedBackup(null);
-        if (lockCheckError.canContinue) {
-          setLockCheckModal({
-            mode: 'checkFailed',
+        const handled = handleLockCheckError(error, {
+          checkFailedPayload: {
             action: 'restore',
             backupPath,
-            detail: lockCheckError.detail,
-            lockingProcesses: lockCheckError.lockingProcesses,
-          });
-          return;
-        }
-
-        setLockCheckModal({
-          mode: 'locked',
-          detail: lockCheckError.detail,
-          lockingProcesses: lockCheckError.lockingProcesses,
+          },
+          onLockCheckError: () => {
+            setRestoreOpen(false);
+            setSelectedBackup(null);
+          },
         });
+        if (!handled) {
+          handleApiError(error);
+        }
       },
     });
   };
@@ -230,15 +198,13 @@ export default function Backup() {
     setDeleteOpen(true);
   };
 
-  const handleContinueAfterLockCheckFailure = async () => {
-    if (!lockCheckModal || lockCheckModal.mode !== 'checkFailed') return;
-
-    if (lockCheckModal.action === 'create') {
-      await runCreateBackup(lockCheckModal.instanceId, true);
+  const handleContinueAfterLockCheckFailure = async (payload: BackupLockCheckPayload) => {
+    if (payload.action === 'create') {
+      await runCreateBackup(payload.instanceId, true);
       return;
     }
 
-    await runRestoreBackup(lockCheckModal.backupPath, true);
+    await runRestoreBackup(payload.backupPath, true);
   };
 
   const stoppedInstances = instances.filter((i) => i.state === 'stopped');
@@ -246,7 +212,7 @@ export default function Backup() {
   const lockCheckModalLoading =
     lockCheckModal?.mode === 'checkFailed'
       ? operations[
-          lockCheckModal.action === 'create'
+          lockCheckModal.payload.action === 'create'
             ? OPERATION_KEYS.backupCreate
             : OPERATION_KEYS.backupRestore
         ] || false
@@ -418,38 +384,11 @@ export default function Backup() {
         }}
       />
 
-      <ConfirmModal
-        open={lockCheckModal !== null}
-        title={lockCheckModal?.mode === 'locked' ? '目标路径被占用' : '目标路径占用检测失败'}
-        danger={lockCheckModal?.mode === 'locked'}
-        okText={lockCheckModal?.mode === 'checkFailed' ? '继续操作' : '我知道了'}
+      <LockCheckConfirmModal
+        state={lockCheckModal}
         loading={lockCheckModalLoading}
-        content={
-          <>
-            <p>{lockCheckModal?.detail}</p>
-            {lockCheckModal?.lockingProcesses?.length ? (
-              <div>
-                <p>检测到以下进程正在占用目标路径:</p>
-                {lockCheckModal.lockingProcesses.map((process, index) => (
-                  <p key={`${process}-${index}`}>
-                    {index + 1}. {process}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-            {lockCheckModal?.mode === 'checkFailed' ? (
-              <p>可选择继续执行本次操作，或取消后稍后重试。</p>
-            ) : (
-              <p>请关闭相关进程后重试。</p>
-            )}
-          </>
-        }
-        onConfirm={
-          lockCheckModal?.mode === 'checkFailed'
-            ? () => void handleContinueAfterLockCheckFailure()
-            : () => setLockCheckModal(null)
-        }
-        onCancel={() => setLockCheckModal(null)}
+        onContinue={handleContinueAfterLockCheckFailure}
+        onClose={closeLockCheckModal}
       />
     </>
   );

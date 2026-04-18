@@ -3,16 +3,17 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
+import { SKIP_OPERATION, findLatestOrSkip, useLockCheckModal, useOperationRunner } from '../hooks';
 import {
   ConfirmModal,
   GeneralSettingsCard,
+  LockCheckConfirmModal,
   ProxySettingsCard,
   SourceSettingsCard,
   TroubleshootingCard,
   PageHeader,
 } from '../components';
-import { handleApiError, parseProcessLockingError } from '../utils';
+import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
 import {
   normalizeInputValue,
@@ -50,19 +51,10 @@ type SourceSettingConfig = {
   reloadBefore?: boolean;
 };
 type ClearActionType = Exclude<ConfirmModalType, null>;
-type LockCheckModalState =
-  | {
-      mode: 'checkFailed';
-      clearType: ClearActionType;
-      instanceId: string;
-      detail: string;
-      lockingProcesses: string[];
-    }
-  | {
-      mode: 'locked';
-      detail: string;
-      lockingProcesses: string[];
-    };
+type LockCheckRetryPayload = {
+  retry: () => Promise<void>;
+  operationKey: string;
+};
 
 export default function Advanced() {
   const instances = useAppStore((s) => s.instances);
@@ -97,7 +89,8 @@ export default function Advanced() {
 
   // Modal state
   const [confirmModal, setConfirmModal] = useState<ConfirmModalType>(null);
-  const [lockCheckModal, setLockCheckModal] = useState<LockCheckModalState | null>(null);
+  const { lockCheckModal, closeLockCheckModal, handleLockCheckError } =
+    useLockCheckModal<LockCheckRetryPayload>();
 
   // Autostart state
   const [autostart, setAutostart] = useState(false);
@@ -330,7 +323,6 @@ export default function Advanced() {
   };
 
   const handleClearInstance = async ({
-    clearType,
     selectedId,
     operationKey,
     clearSelection,
@@ -339,16 +331,12 @@ export default function Advanced() {
     successMessage,
     requireStoppedMessage,
     skipLockCheck = false,
-    selectedIdOverride,
   }: ClearInstanceOptions & {
-    clearType: ClearActionType;
     skipLockCheck?: boolean;
-    selectedIdOverride?: string;
   }) => {
-    const selectedIdForRun = selectedIdOverride ?? selectedId;
-    if (!selectedIdForRun) return;
+    if (!selectedId) return;
 
-    const key = operationKey(selectedIdForRun);
+    const key = operationKey(selectedId);
     await runOperation({
       key,
       reloadBefore: true,
@@ -356,7 +344,7 @@ export default function Advanced() {
         const { instances: latestInstances } = useAppStore.getState();
         const latestInstance = findLatestOrSkip(
           latestInstances,
-          (i) => i.id === selectedIdForRun,
+          (i) => i.id === selectedId,
           '实例不存在或已被删除'
         );
         if (latestInstance === SKIP_OPERATION) {
@@ -371,41 +359,42 @@ export default function Advanced() {
         }
 
         if (!skipLockCheck && checkAction) {
-          await checkAction(selectedIdForRun);
+          await checkAction(selectedId);
         }
 
-        await clearAction(selectedIdForRun);
+        await clearAction(selectedId);
       },
       onSuccess: () => {
         message.success(successMessage);
         clearSelection();
         setConfirmModal(null);
-        setLockCheckModal(null);
+        closeLockCheckModal();
       },
       onError: (error) => {
-        const lockCheckError = parseProcessLockingError(error);
-        if (!lockCheckError) {
-          handleApiError(error);
-          return;
-        }
-
-        setConfirmModal(null);
-        if (lockCheckError.canContinue) {
-          setLockCheckModal({
-            mode: 'checkFailed',
-            clearType,
-            instanceId: selectedIdForRun,
-            detail: lockCheckError.detail,
-            lockingProcesses: lockCheckError.lockingProcesses,
-          });
-          return;
-        }
-
-        setLockCheckModal({
-          mode: 'locked',
-          detail: lockCheckError.detail,
-          lockingProcesses: lockCheckError.lockingProcesses,
+        const handled = handleLockCheckError(error, {
+          checkFailedPayload: {
+            operationKey: key,
+            retry: async () => {
+              await handleClearInstance({
+                selectedId,
+                operationKey,
+                clearSelection,
+                checkAction,
+                clearAction,
+                successMessage,
+                requireStoppedMessage,
+                skipLockCheck: true,
+              });
+            },
+          },
+          onLockCheckError: () => {
+            setConfirmModal(null);
+          },
         });
+
+        if (!handled) {
+          handleApiError(error);
+        }
       },
     });
   };
@@ -438,17 +427,11 @@ export default function Advanced() {
   };
 
   const handleClearByType = async (type: ClearActionType) => {
-    await handleClearInstance({ ...clearActionConfigs[type], clearType: type });
+    await handleClearInstance(clearActionConfigs[type]);
   };
 
-  const handleContinueAfterLockCheckFailure = async () => {
-    if (!lockCheckModal || lockCheckModal.mode !== 'checkFailed') return;
-    await handleClearInstance({
-      ...clearActionConfigs[lockCheckModal.clearType],
-      clearType: lockCheckModal.clearType,
-      selectedIdOverride: lockCheckModal.instanceId,
-      skipLockCheck: true,
-    });
+  const handleContinueAfterLockCheckFailure = async (payload: LockCheckRetryPayload) => {
+    await payload.retry();
   };
 
   const instanceOptions = instances.map((i) => ({
@@ -479,9 +462,7 @@ export default function Advanced() {
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
   const lockCheckModalLoading =
     lockCheckModal?.mode === 'checkFailed'
-      ? operations[
-          clearActionConfigs[lockCheckModal.clearType].operationKey(lockCheckModal.instanceId)
-        ] || false
+      ? operations[lockCheckModal.payload.operationKey] || false
       : false;
 
   const getConfirmLoading = () => {
@@ -628,38 +609,11 @@ export default function Advanced() {
         onCancel={() => setConfirmModal(null)}
       />
 
-      <ConfirmModal
-        open={lockCheckModal !== null}
-        title={lockCheckModal?.mode === 'locked' ? '目标路径被占用' : '目标路径占用检测失败'}
-        danger={lockCheckModal?.mode === 'locked'}
-        okText={lockCheckModal?.mode === 'checkFailed' ? '继续操作' : '我知道了'}
-        content={
-          <>
-            <p>{lockCheckModal?.detail}</p>
-            {lockCheckModal?.lockingProcesses?.length ? (
-              <div>
-                <p>检测到以下进程正在占用目标路径:</p>
-                {lockCheckModal.lockingProcesses.map((process, index) => (
-                  <p key={`${process}-${index}`}>
-                    {index + 1}. {process}
-                  </p>
-                ))}
-              </div>
-            ) : null}
-            {lockCheckModal?.mode === 'checkFailed' ? (
-              <p>可选择继续执行本次操作，或取消后稍后重试。</p>
-            ) : (
-              <p>请关闭相关进程后重试。</p>
-            )}
-          </>
-        }
+      <LockCheckConfirmModal
+        state={lockCheckModal}
         loading={lockCheckModalLoading}
-        onConfirm={
-          lockCheckModal?.mode === 'checkFailed'
-            ? () => void handleContinueAfterLockCheckFailure()
-            : () => setLockCheckModal(null)
-        }
-        onCancel={() => setLockCheckModal(null)}
+        onContinue={handleContinueAfterLockCheckFailure}
+        onClose={closeLockCheckModal}
       />
     </>
   );

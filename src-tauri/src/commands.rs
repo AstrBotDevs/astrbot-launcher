@@ -394,6 +394,9 @@ pub enum LockCheckTarget {
 fn run_instance_data_lock_check(instance_id: &str) -> Result<()> {
     validate_instance_id(instance_id)?;
     let data_dir = get_instance_core_dir(instance_id).join("data");
+    if !data_dir.exists() {
+        return Ok(());
+    }
     let target_files = collect_files_for_lock_check(&data_dir)?;
     ensure_target_not_locked(&target_files)
 }
