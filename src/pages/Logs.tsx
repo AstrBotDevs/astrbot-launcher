@@ -86,9 +86,10 @@ export default function Logs() {
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
+            minHeight: 0,
           },
         }}
-        style={{ flex: 1, display: 'flex', flexDirection: 'column' }}
+        style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {logs.length === 0 ? (
           <Flex flex={1} align="center" justify="center">
@@ -105,7 +106,6 @@ export default function Logs() {
               background: '#1a1a2e',
               color: '#d4d4d4',
               borderRadius: 'inherit',
-              maxHeight: 'calc(100vh - 170px)',
               fontFamily:
                 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
               fontSize: 12,

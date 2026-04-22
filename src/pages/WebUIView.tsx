@@ -32,7 +32,7 @@ export default function WebUIView() {
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'center',
-          height: '100vh',
+          height: '100%',
         }}
       >
         <Spin size="large" />
@@ -52,7 +52,7 @@ export default function WebUIView() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div
         style={{
           height: 40,
@@ -74,6 +74,7 @@ export default function WebUIView() {
         src={`http://localhost:${port}`}
         style={{
           flex: 1,
+          minHeight: 0,
           border: 'none',
           width: '100%',
         }}
