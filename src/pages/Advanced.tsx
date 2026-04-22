@@ -3,10 +3,11 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, findLatestOrSkip, useOperationRunner } from '../hooks';
+import { SKIP_OPERATION, findLatestOrSkip, useLockCheckModal, useOperationRunner } from '../hooks';
 import {
   ConfirmModal,
   GeneralSettingsCard,
+  LockCheckConfirmModal,
   ProxySettingsCard,
   SourceSettingsCard,
   TroubleshootingCard,
@@ -35,6 +36,7 @@ type ClearInstanceOptions = {
   selectedId: string | null;
   operationKey: (id: string) => string;
   clearSelection: () => void;
+  checkAction?: (id: string) => Promise<void>;
   clearAction: (id: string) => Promise<void>;
   successMessage: string;
   requireStoppedMessage?: string;
@@ -49,6 +51,10 @@ type SourceSettingConfig = {
   reloadBefore?: boolean;
 };
 type ClearActionType = Exclude<ConfirmModalType, null>;
+type LockCheckRetryPayload = {
+  retry: () => Promise<void>;
+  operationKey: string;
+};
 
 export default function Advanced() {
   const instances = useAppStore((s) => s.instances);
@@ -83,6 +89,8 @@ export default function Advanced() {
 
   // Modal state
   const [confirmModal, setConfirmModal] = useState<ConfirmModalType>(null);
+  const { lockCheckModal, closeLockCheckModal, handleLockCheckError } =
+    useLockCheckModal<LockCheckRetryPayload>();
 
   // Autostart state
   const [autostart, setAutostart] = useState(false);
@@ -318,10 +326,14 @@ export default function Advanced() {
     selectedId,
     operationKey,
     clearSelection,
+    checkAction,
     clearAction,
     successMessage,
     requireStoppedMessage,
-  }: ClearInstanceOptions) => {
+    skipLockCheck = false,
+  }: ClearInstanceOptions & {
+    skipLockCheck?: boolean;
+  }) => {
     if (!selectedId) return;
 
     const key = operationKey(selectedId);
@@ -346,12 +358,43 @@ export default function Advanced() {
           return SKIP_OPERATION;
         }
 
+        if (!skipLockCheck && checkAction) {
+          await checkAction(selectedId);
+        }
+
         await clearAction(selectedId);
       },
       onSuccess: () => {
         message.success(successMessage);
         clearSelection();
         setConfirmModal(null);
+        closeLockCheckModal();
+      },
+      onError: (error) => {
+        const handled = handleLockCheckError(error, {
+          checkFailedPayload: {
+            operationKey: key,
+            retry: async () => {
+              await handleClearInstance({
+                selectedId,
+                operationKey,
+                clearSelection,
+                checkAction,
+                clearAction,
+                successMessage,
+                requireStoppedMessage,
+                skipLockCheck: true,
+              });
+            },
+          },
+          onLockCheckError: () => {
+            setConfirmModal(null);
+          },
+        });
+
+        if (!handled) {
+          handleApiError(error);
+        }
       },
     });
   };
@@ -361,7 +404,8 @@ export default function Advanced() {
       selectedId: selectedDataInstance,
       operationKey: OPERATION_KEYS.advancedClearData,
       clearSelection: () => setSelectedDataInstance(null),
-      clearAction: api.clearInstanceData,
+      checkAction: (id) => api.checkLock({ target: 'instance_data', instanceId: id }),
+      clearAction: (id) => api.clearInstanceData(id),
       successMessage: '数据已清空',
       requireStoppedMessage: '请先停止实例再清空数据',
     },
@@ -369,7 +413,7 @@ export default function Advanced() {
       selectedId: selectedVenvInstance,
       operationKey: OPERATION_KEYS.advancedClearVenv,
       clearSelection: () => setSelectedVenvInstance(null),
-      clearAction: api.clearInstanceVenv,
+      clearAction: (id) => api.clearInstanceVenv(id),
       successMessage: '虚拟环境已清空',
       requireStoppedMessage: '请先停止实例再清空虚拟环境',
     },
@@ -377,13 +421,17 @@ export default function Advanced() {
       selectedId: selectedPycacheInstance,
       operationKey: OPERATION_KEYS.advancedClearPycache,
       clearSelection: () => setSelectedPycacheInstance(null),
-      clearAction: api.clearPycache,
+      clearAction: (id) => api.clearPycache(id),
       successMessage: 'Python 缓存已清空',
     },
   };
 
   const handleClearByType = async (type: ClearActionType) => {
     await handleClearInstance(clearActionConfigs[type]);
+  };
+
+  const handleContinueAfterLockCheckFailure = async (payload: LockCheckRetryPayload) => {
+    await payload.retry();
   };
 
   const instanceOptions = instances.map((i) => ({
@@ -412,6 +460,10 @@ export default function Advanced() {
     operations[OPERATION_KEYS.advancedSaveIgnoreExternalPath] || false;
   const lockCheckExtensionWhitelistSaving =
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
+  const lockCheckModalLoading =
+    lockCheckModal?.mode === 'checkFailed'
+      ? operations[lockCheckModal.payload.operationKey] || false
+      : false;
 
   const getConfirmLoading = () => {
     switch (confirmModal) {
@@ -555,6 +607,13 @@ export default function Advanced() {
         loading={getConfirmLoading()}
         onConfirm={modalConfig?.onOk ?? (() => {})}
         onCancel={() => setConfirmModal(null)}
+      />
+
+      <LockCheckConfirmModal
+        state={lockCheckModal}
+        loading={lockCheckModalLoading}
+        onContinue={handleContinueAfterLockCheckFailure}
+        onClose={closeLockCheckModal}
       />
     </>
   );

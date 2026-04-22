@@ -1,6 +1,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GitHubRelease, AppSnapshot } from './types';
 
+type LockCheckRequest =
+  | {
+      target: 'instance_data' | 'backup_create' | 'instance_upgrade';
+      instanceId: string;
+    }
+  | {
+      target: 'backup_restore';
+      backupPath: string;
+    };
+
 export const api = {
   // ========================================
   // Snapshot
@@ -61,6 +71,12 @@ export const api = {
   // Troubleshooting
   // ========================================
   clearInstanceData: (instanceId: string) => invoke<void>('clear_instance_data', { instanceId }),
+  checkLock: (request: LockCheckRequest) =>
+    invoke<void>('check_lock', {
+      target: request.target,
+      instanceId: 'instanceId' in request ? request.instanceId : null,
+      backupPath: 'backupPath' in request ? request.backupPath : null,
+    }),
   clearInstanceVenv: (instanceId: string) => invoke<void>('clear_instance_venv', { instanceId }),
   clearPycache: (instanceId: string) => invoke<void>('clear_pycache', { instanceId }),
 

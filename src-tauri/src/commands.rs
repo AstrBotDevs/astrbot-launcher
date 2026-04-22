@@ -19,11 +19,14 @@ use crate::network_config;
 use crate::platform;
 use crate::process::ProcessManager;
 use crate::utils::index_url::normalize_default_index;
+use crate::utils::lock_check::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::net::{build_http_client_with_proxy, check_url};
+use crate::utils::paths::get_instance_core_dir;
 use crate::utils::proxy::{
     build_single_url_proxy_settings, ProxyFields, ProxySource, DEFAULT_NO_PROXY_VALUE,
 };
 use crate::utils::sync::{read_lock_recover, write_lock_recover};
+use crate::utils::validation::validate_instance_id;
 
 fn sort_installed_versions_semver(versions: &mut [InstalledVersion]) {
     versions.sort_by(|a, b| {
@@ -378,6 +381,53 @@ pub async fn uninstall_version(version: String) -> Result<()> {
 }
 
 // === Troubleshooting ===
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LockCheckTarget {
+    InstanceData,
+    BackupCreate,
+    BackupRestore,
+    InstanceUpgrade,
+}
+
+fn run_instance_data_lock_check(instance_id: &str) -> Result<()> {
+    validate_instance_id(instance_id)?;
+    let data_dir = get_instance_core_dir(instance_id).join("data");
+    if !data_dir.exists() {
+        return Ok(());
+    }
+    let target_files = collect_files_for_lock_check(&data_dir)?;
+    ensure_target_not_locked(&target_files)
+}
+
+#[tauri::command]
+pub async fn check_lock(
+    target: LockCheckTarget,
+    instance_id: Option<String>,
+    backup_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    match target {
+        LockCheckTarget::InstanceData
+        | LockCheckTarget::BackupCreate
+        | LockCheckTarget::InstanceUpgrade => {
+            let instance_id = instance_id
+                .as_deref()
+                .ok_or_else(|| AppError::other("check_lock 缺少 instance_id"))?;
+            let _guard = state.process_manager.acquire_guard(instance_id)?;
+            run_instance_data_lock_check(instance_id)
+        }
+        LockCheckTarget::BackupRestore => {
+            let backup_path = backup_path
+                .as_deref()
+                .ok_or_else(|| AppError::other("check_lock 缺少 backup_path"))?;
+            let (_, metadata) = backup::resolve_restore_backup_input(backup_path)?;
+            let _guard = state.process_manager.acquire_guard(&metadata.instance_id)?;
+            run_instance_data_lock_check(&metadata.instance_id)
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn clear_instance_data(instance_id: String, state: State<'_, AppState>) -> Result<()> {
