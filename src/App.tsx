@@ -76,14 +76,15 @@ function AppLayout() {
   ];
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <Layout style={{ flex: 1, overflow: 'hidden' }}>
+    <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      <Layout style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <Sider
           width={180}
           theme="light"
           style={{
             overflow: 'auto',
             height: '100%',
+            minHeight: 0,
           }}
         >
           <Menu
@@ -94,8 +95,8 @@ function AppLayout() {
             style={{ borderRight: 0 }}
           />
         </Sider>
-        <Layout>
-          <Content style={{ padding: 24, overflow: 'auto', height: '100%' }}>
+        <Layout style={{ minHeight: 0 }}>
+          <Content style={{ padding: 24, overflow: 'auto', height: '100%', minHeight: 0 }}>
             <ErrorBoundary>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
@@ -158,7 +159,7 @@ function App({ isMacOS }: { isMacOS: boolean }) {
         <AntdStaticProvider />
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
           {!isMacOS && <TitleBar />}
-          <div style={{ flex: 1, height: 0, overflow: 'hidden' }}>
+          <div style={{ flex: 1, height: 0, minHeight: 0, overflow: 'hidden' }}>
             <BrowserRouter>
               <Suspense>
                 <Routes>
