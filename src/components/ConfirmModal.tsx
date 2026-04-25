@@ -44,7 +44,7 @@ export function ConfirmModal({
       okButtonProps={{ danger, loading }}
       cancelButtonProps={{ disabled: loading }}
       closable={false}
-      maskClosable={lockOnLoading ? !loading : true}
+      mask={{ closable: lockOnLoading ? !loading : true }}
       keyboard={lockOnLoading ? !loading : true}
     >
       {content}

@@ -44,7 +44,7 @@ export default function About() {
     <>
       <PageHeader title="关于" />
       <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 48 }}>
-        <Space direction="vertical" align="center" size="large">
+        <Space orientation="vertical" align="center" size="large">
           <img src="/logo.png" alt="AstrBot Launcher" width={96} height={96} />
           <Title level={4} style={{ margin: 0 }}>
             AstrBot Launcher

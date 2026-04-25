@@ -41,11 +41,7 @@ export function LockCheckConfirmModal<TPayload>({
           )}
         </>
       }
-      onConfirm={
-        state?.mode === 'checkFailed'
-          ? () => void onContinue(state.payload)
-          : onClose
-      }
+      onConfirm={state?.mode === 'checkFailed' ? () => void onContinue(state.payload) : onClose}
       onCancel={onClose}
     />
   );

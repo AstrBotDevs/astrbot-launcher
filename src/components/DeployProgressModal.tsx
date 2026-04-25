@@ -30,11 +30,11 @@ export function DeployProgressModal({
       open={open}
       footer={null}
       closable={false}
-      maskClosable={false}
+      mask={{ closable: false }}
       width={500}
     >
       <Steps
-        direction="vertical"
+        orientation="vertical"
         current={currentStep}
         items={steps.map((step) => ({ title: step.title }))}
         size="small"

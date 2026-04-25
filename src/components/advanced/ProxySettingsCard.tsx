@@ -45,7 +45,7 @@ export function ProxySettingsCard({
           validateStatus={proxyError ? 'error' : undefined}
           help={proxyError ?? undefined}
         >
-          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Space orientation="vertical" style={{ width: '100%' }} size={8}>
             <Space.Compact style={{ width: '100%' }}>
               <Input
                 value={proxyUrl}

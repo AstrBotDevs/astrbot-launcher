@@ -190,12 +190,7 @@ export default function Dashboard() {
 
           setEditOpen(false);
           setEditingInstance(null);
-          await api.updateInstance(
-            latestInstance.id,
-            payload.name,
-            payload.version,
-            payload.port
-          );
+          await api.updateInstance(latestInstance.id, payload.name, payload.version, payload.port);
         },
         onSuccess: () => {
           closeUpgradeLockModal();
