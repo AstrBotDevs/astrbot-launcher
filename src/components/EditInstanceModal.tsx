@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Form, Input, InputNumber, Modal, Select } from 'antd';
 import { api } from '../api';
 import type { InstanceStatus, InstalledVersion } from '../types';
@@ -70,10 +70,10 @@ export function EditInstanceModal({
   const okText =
     instance && watchedVersion !== instance.version ? (versionCmp > 0 ? '升级' : '降级') : '确定';
 
-  const versionOptions = versions.map((v) => ({
-    label: v.version,
-    value: v.version,
-  }));
+  const versionOptions = useMemo(
+    () => versions.map((v) => ({ label: v.version, value: v.version })),
+    [versions]
+  );
 
   return (
     <Modal

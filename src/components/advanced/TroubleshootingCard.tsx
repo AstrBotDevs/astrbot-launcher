@@ -16,28 +16,6 @@ interface ActionRowProps {
   loading?: boolean;
 }
 
-interface TroubleshootingCardProps {
-  runningInstancesCount: number;
-  ignoreExternalPath: boolean;
-  ignoreExternalPathSaving: boolean;
-  instanceOptions: InstanceOption[];
-  stoppedInstanceOptions: InstanceOption[];
-  selectedDataInstance: string | null;
-  selectedVenvInstance: string | null;
-  selectedPycacheInstance: string | null;
-  confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | null;
-  clearDataLoading: boolean;
-  clearVenvLoading: boolean;
-  clearPycacheLoading: boolean;
-  onSelectDataInstance: (id: string | null) => void;
-  onSelectVenvInstance: (id: string | null) => void;
-  onSelectPycacheInstance: (id: string | null) => void;
-  onOpenClearData: () => void;
-  onOpenClearVenv: () => void;
-  onOpenClearPycache: () => void;
-  onIgnoreExternalPathChange: (checked: boolean) => void;
-}
-
 function ActionRow({
   label,
   options,
@@ -72,6 +50,28 @@ function ActionRow({
       </Button>
     </div>
   );
+}
+
+interface TroubleshootingCardProps {
+  runningInstancesCount: number;
+  ignoreExternalPath: boolean;
+  ignoreExternalPathSaving: boolean;
+  instanceOptions: InstanceOption[];
+  stoppedInstanceOptions: InstanceOption[];
+  selectedDataInstance: string | null;
+  selectedVenvInstance: string | null;
+  selectedPycacheInstance: string | null;
+  confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | null;
+  clearDataLoading: boolean;
+  clearVenvLoading: boolean;
+  clearPycacheLoading: boolean;
+  onSelectDataInstance: (id: string | null) => void;
+  onSelectVenvInstance: (id: string | null) => void;
+  onSelectPycacheInstance: (id: string | null) => void;
+  onOpenClearData: () => void;
+  onOpenClearVenv: () => void;
+  onOpenClearPycache: () => void;
+  onIgnoreExternalPathChange: (checked: boolean) => void;
 }
 
 export function TroubleshootingCard({

@@ -12,7 +12,9 @@ import { message } from '../antdStatic';
 import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
 import { useAppStore } from '../stores';
 import { handleApiError } from '../utils';
-import { ConfirmModal, MarkdownContent, PageHeader } from '../components';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { MarkdownContent } from '../components/MarkdownContent';
+import { PageHeader } from '../components/PageHeader';
 import { OPERATION_KEYS } from '../constants';
 
 const { Text } = Typography;

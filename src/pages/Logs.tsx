@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Card, Empty, Select, Flex, Layout } from 'antd';
 import { ClearOutlined } from '@ant-design/icons';
 import Ansi from 'ansi-to-react';
-import { PageHeader } from '../components';
+import { PageHeader } from '../components/PageHeader';
 import { useAppStore, useLogStore, type LogLevelFilter } from '../stores';
 
 const { Content } = Layout;

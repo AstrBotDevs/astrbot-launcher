@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useMemo } from 'react';
 import { Badge, Layout, Menu, ConfigProvider, App as AntdApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import {
@@ -10,7 +10,8 @@ import {
   ToolOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { ErrorBoundary, TitleBar } from './components';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { TitleBar } from './components/TitleBar';
 import { AntdStaticProvider } from './antdStatic';
 import { useAppStore, useUpdateStore, initEventListeners, cleanupEventListeners } from './stores';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -38,42 +39,45 @@ function AppLayout() {
     void reloadSnapshot();
   }, [location.pathname, reloadSnapshot]);
 
-  const menuItems = [
-    {
-      key: '/',
-      icon: <DesktopOutlined />,
-      label: '实例',
-    },
-    {
-      key: '/versions',
-      icon: <CloudDownloadOutlined />,
-      label: '版本',
-    },
-    {
-      key: '/backup',
-      icon: <SaveOutlined />,
-      label: '备份',
-    },
-    {
-      key: '/logs',
-      icon: <FileTextOutlined />,
-      label: '日志',
-    },
-    {
-      key: '/advanced',
-      icon: <ToolOutlined />,
-      label: '高级',
-    },
-    {
-      key: '/about',
-      icon: <InfoCircleOutlined />,
-      label: (
-        <Badge dot={hasUpdate} offset={[6, 0]}>
-          关于
-        </Badge>
-      ),
-    },
-  ];
+  const menuItems = useMemo(
+    () => [
+      {
+        key: '/',
+        icon: <DesktopOutlined />,
+        label: '实例',
+      },
+      {
+        key: '/versions',
+        icon: <CloudDownloadOutlined />,
+        label: '版本',
+      },
+      {
+        key: '/backup',
+        icon: <SaveOutlined />,
+        label: '备份',
+      },
+      {
+        key: '/logs',
+        icon: <FileTextOutlined />,
+        label: '日志',
+      },
+      {
+        key: '/advanced',
+        icon: <ToolOutlined />,
+        label: '高级',
+      },
+      {
+        key: '/about',
+        icon: <InfoCircleOutlined />,
+        label: (
+          <Badge dot={hasUpdate} offset={[6, 0]}>
+            关于
+          </Badge>
+        ),
+      },
+    ],
+    [hasUpdate]
+  );
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>

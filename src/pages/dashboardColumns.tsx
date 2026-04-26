@@ -1,6 +1,7 @@
 import { Space, Tag, Tooltip } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { InstanceActions, InstanceStatusTag } from '../components';
+import { InstanceActions } from '../components/InstanceActions';
+import { InstanceStatusTag } from '../components/InstanceStatusTag';
 import { OPERATION_KEYS } from '../constants';
 import type { DeployProgress, InstanceStatus } from '../types';
 import { isInstanceDeploying } from '../utils';

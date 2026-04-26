@@ -5,15 +5,15 @@ import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
-import { SKIP_OPERATION, findLatestOrSkip, useLockCheckModal, useOperationRunner } from '../hooks';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
+import { findLatestOrSkip } from '../hooks/operationGuards';
+import { useLockCheckModal } from '../hooks/useLockCheckModal';
 import { useAppStore } from '../stores';
-import {
-  DeployProgressModal,
-  ConfirmModal,
-  EditInstanceModal,
-  LockCheckConfirmModal,
-  PageHeader,
-} from '../components';
+import { DeployProgressModal } from '../components/DeployProgressModal';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { EditInstanceModal } from '../components/EditInstanceModal';
+import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
+import { PageHeader } from '../components/PageHeader';
 import { handleApiError } from '../utils';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 import { buildDashboardColumns } from './dashboardColumns';
@@ -75,6 +75,13 @@ export default function Dashboard() {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [instanceUpdateMap, setInstanceUpdateMap] = useState<Record<string, boolean>>({});
 
+  // Stable content-based key to avoid re-running the effect when the instances
+  // array reference changes but the actual items are identical (e.g. after snapshot refresh).
+  const instanceVersionKeys = useMemo(
+    () => instances.map((i) => `${i.id}:${i.version}`).join(','),
+    [instances]
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -117,7 +124,7 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [config?.check_instance_update, instances]);
+  }, [config?.check_instance_update, instanceVersionKeys]);
 
   // ========================================
   // Instance Actions
@@ -286,11 +293,10 @@ export default function Dashboard() {
 
   const handleStart = useCallback(
     async (id: string) => {
-      const instance = instances.find((i) => i.id === id);
+      const { instances: latestInstances, components } = useAppStore.getState();
+      const instance = latestInstances.find((i) => i.id === id);
       if (!instance) return;
 
-      // Check if Python component is installed
-      const { components } = useAppStore.getState();
       const python = components.find((c) => c.id === 'python');
       if (!python?.installed) {
         message.warning('请先在版本页面下载 Python 组件');
@@ -307,7 +313,7 @@ export default function Dashboard() {
         onError: closeDeploy,
       });
     },
-    [instances, startDeploy, closeDeploy, executeInstanceAction]
+    [startDeploy, closeDeploy, executeInstanceAction]
   );
 
   const handleStop = useCallback(
@@ -429,10 +435,10 @@ export default function Dashboard() {
     ]
   );
 
-  const versionOptions = versions.map((v) => ({
-    label: v.version,
-    value: v.version,
-  }));
+  const versionOptions = useMemo(
+    () => versions.map((v) => ({ label: v.version, value: v.version })),
+    [versions]
+  );
   const upgradeLockModalLoading =
     upgradeLockModal?.mode === 'checkFailed'
       ? operations[OPERATION_KEYS.instance(upgradeLockModal.payload.instanceId)] || false

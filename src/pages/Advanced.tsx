@@ -3,16 +3,16 @@ import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import { useAppStore } from '../stores';
-import { SKIP_OPERATION, findLatestOrSkip, useLockCheckModal, useOperationRunner } from '../hooks';
-import {
-  ConfirmModal,
-  GeneralSettingsCard,
-  LockCheckConfirmModal,
-  ProxySettingsCard,
-  SourceSettingsCard,
-  TroubleshootingCard,
-  PageHeader,
-} from '../components';
+import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner';
+import { findLatestOrSkip } from '../hooks/operationGuards';
+import { useLockCheckModal } from '../hooks/useLockCheckModal';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { GeneralSettingsCard } from '../components/advanced/GeneralSettingsCard';
+import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
+import { ProxySettingsCard } from '../components/advanced/ProxySettingsCard';
+import { SourceSettingsCard } from '../components/advanced/SourceSettingsCard';
+import { TroubleshootingCard } from '../components/advanced/TroubleshootingCard';
+import { PageHeader } from '../components/PageHeader';
 import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
 import {
