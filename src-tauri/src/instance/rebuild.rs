@@ -1,6 +1,6 @@
 //! Rebuild instance and version manifest entries by scanning the data directory.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -24,7 +24,7 @@ pub fn rebuild_instance_manifest_from_disk() -> Result<RebuildInstanceManifestRe
     with_manifest_mut(move |manifest| {
         manifest.installed_versions = installed_versions;
         manifest.instances = instances;
-        let rebuilt_ids: Vec<String> = manifest.instances.keys().cloned().collect();
+        let rebuilt_ids: HashSet<String> = manifest.instances.keys().cloned().collect();
         manifest
             .tracked_instances_snapshot
             .retain(|id| rebuilt_ids.contains(id));

@@ -455,9 +455,12 @@ pub async fn rebuild_instance_manifest(
         return Err(AppError::instance_running());
     }
 
-    tokio::task::spawn_blocking(instance::rebuild_instance_manifest_from_disk)
+    let result = tokio::task::spawn_blocking(instance::rebuild_instance_manifest_from_disk)
         .await
-        .map_err(|e| AppError::process(format!("Rebuild instance manifest task panicked: {}", e)))?
+        .map_err(|e| {
+            AppError::process(format!("Rebuild instance manifest task panicked: {}", e))
+        })??;
+    Ok(result)
 }
 
 // === Instance Management ===
