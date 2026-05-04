@@ -30,6 +30,14 @@ use crate::utils::validation::validate_instance_id;
 
 use crate::process::STARTUP_TIMEOUT_SECS;
 
+const STARTUP_COMPLETION_MARKERS: &[&str] = &["AstrBot started.", "AstrBot 启动完成"];
+
+fn is_startup_completion_log(line: &str) -> bool {
+    STARTUP_COMPLETION_MARKERS
+        .iter()
+        .any(|marker| line.contains(marker))
+}
+
 /// Result of a successful instance launch.
 pub struct LaunchResult {
     pub pid: u32,
@@ -246,7 +254,7 @@ pub async fn launch_instance(
         let mut startup_sent = false;
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             log_channel::emit_log(&instance_id_stdout, "info", &line);
-            if !startup_sent && line.contains("AstrBot 启动完成") {
+            if !startup_sent && is_startup_completion_log(&line) {
                 let _ = startup_tx.send(());
                 startup_sent = true;
             }
