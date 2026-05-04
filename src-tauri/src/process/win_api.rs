@@ -47,8 +47,11 @@ pub struct LockingProcessInfo {
 
 #[derive(Debug, Clone)]
 pub struct JobObject {
-    inner: Arc<Owned<HANDLE>>,
+    inner: Arc<JobHandle>,
 }
+
+#[derive(Debug)]
+struct JobHandle(Owned<HANDLE>);
 
 // Safety invariants:
 // - JobObject only owns launcher-created job handles in this process.
@@ -58,8 +61,8 @@ pub struct JobObject {
 // - Windows kernel handles are valid across threads in the owning process.
 //   The `windows` crate represents HANDLE as a raw pointer and does not mark it
 //   Send/Sync, so the process manager needs this wrapper boundary.
-unsafe impl Send for JobObject {}
-unsafe impl Sync for JobObject {}
+unsafe impl Send for JobHandle {}
+unsafe impl Sync for JobHandle {}
 
 impl JobObject {
     /// Create a Windows Job Object that terminates all assigned processes when
@@ -88,7 +91,7 @@ impl JobObject {
         })?;
 
         Ok(Self {
-            inner: Arc::new(handle),
+            inner: Arc::new(JobHandle(handle)),
         })
     }
 
@@ -106,7 +109,7 @@ impl JobObject {
         let process_handle = unsafe { Owned::new(process_handle) };
 
         let result =
-            unsafe { AssignProcessToJobObject(**self.inner, *process_handle) }.map_err(|e| {
+            unsafe { AssignProcessToJobObject(*self.inner.0, *process_handle) }.map_err(|e| {
                 crate::error::AppError::process(format!(
                     "Failed to assign PID {pid} to job object: {e}"
                 ))

@@ -71,6 +71,35 @@ fn cancel_startup_due_to_shutdown(
     )))
 }
 
+fn cancel_startup_due_to_timeout(
+    instance_id: &str,
+    pid: u32,
+    executable_path: &Path,
+) -> Result<LaunchResult> {
+    log::error!(
+        "Instance {} startup timed out ({}s)",
+        instance_id,
+        STARTUP_TIMEOUT_SECS
+    );
+    // Avoid killing an unrelated process if PID got reused.
+    if can_signal_expected_process(pid, executable_path) {
+        if let Err(kill_err) = force_kill(pid) {
+            log::warn!(
+                "Failed to kill timed-out instance {}: {}",
+                instance_id,
+                kill_err
+            );
+        }
+    } else {
+        log::warn!(
+            "Skip killing timed-out instance {}: PID {} executable path mismatch (possible PID reuse)",
+            instance_id,
+            pid
+        );
+    }
+    Err(AppError::startup_timeout())
+}
+
 #[cfg(target_os = "windows")]
 fn assign_child_to_job_object(pid: u32) -> Result<crate::process::JobObject> {
     let job_object = crate::process::JobObject::create_kill_on_close()?;
@@ -332,28 +361,7 @@ pub async fn launch_instance(
             Err(AppError::process(detail))
         }
         _ = &mut timeout => {
-            log::error!(
-                "Instance {} startup timed out ({}s)",
-                instance_id,
-                STARTUP_TIMEOUT_SECS
-            );
-            // Avoid killing an unrelated process if PID got reused.
-            if can_signal_expected_process(pid, &executable_path) {
-                if let Err(kill_err) = force_kill(pid) {
-                    log::warn!(
-                        "Failed to kill timed-out instance {}: {}",
-                        instance_id,
-                        kill_err
-                    );
-                }
-            } else {
-                log::warn!(
-                    "Skip killing timed-out instance {}: PID {} executable path mismatch (possible PID reuse)",
-                    instance_id,
-                    pid
-                );
-            }
-            Err(AppError::startup_timeout())
+            cancel_startup_due_to_timeout(instance_id, pid, &executable_path)
         }
     }
 }
