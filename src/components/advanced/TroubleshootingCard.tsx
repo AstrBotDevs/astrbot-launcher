@@ -1,5 +1,5 @@
 import { Alert, Button, Card, Select, Space, Switch, Typography } from 'antd';
-import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ReloadOutlined, ToolOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
@@ -61,17 +61,21 @@ interface TroubleshootingCardProps {
   selectedDataInstance: string | null;
   selectedVenvInstance: string | null;
   selectedPycacheInstance: string | null;
+  selectedRepairInstance: string | null;
   confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | 'rebuildManifest' | null;
   clearDataLoading: boolean;
   clearVenvLoading: boolean;
   clearPycacheLoading: boolean;
+  repairInstanceLoading: boolean;
   rebuildManifestLoading: boolean;
   onSelectDataInstance: (id: string | null) => void;
   onSelectVenvInstance: (id: string | null) => void;
   onSelectPycacheInstance: (id: string | null) => void;
+  onSelectRepairInstance: (id: string | null) => void;
   onOpenClearData: () => void;
   onOpenClearVenv: () => void;
   onOpenClearPycache: () => void;
+  onOpenRepairInstance: () => void;
   onOpenRebuildManifest: () => void;
   onIgnoreExternalPathChange: (checked: boolean) => void;
 }
@@ -85,17 +89,21 @@ export function TroubleshootingCard({
   selectedDataInstance,
   selectedVenvInstance,
   selectedPycacheInstance,
+  selectedRepairInstance,
   confirmModal,
   clearDataLoading,
   clearVenvLoading,
   clearPycacheLoading,
+  repairInstanceLoading,
   rebuildManifestLoading,
   onSelectDataInstance,
   onSelectVenvInstance,
   onSelectPycacheInstance,
+  onSelectRepairInstance,
   onOpenClearData,
   onOpenClearVenv,
   onOpenClearPycache,
+  onOpenRepairInstance,
   onOpenRebuildManifest,
   onIgnoreExternalPathChange,
 }: TroubleshootingCardProps) {
@@ -169,6 +177,28 @@ export function TroubleshootingCard({
             disabled={confirmModal === 'clearPycache'}
             loading={clearPycacheLoading}
           />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Text style={{ width: 140 }}>修复实例:</Text>
+            <Select
+              style={{ width: 200 }}
+              placeholder="选择"
+              options={stoppedInstanceOptions}
+              onChange={onSelectRepairInstance}
+              value={selectedRepairInstance}
+              disabled={stoppedInstanceOptions.length === 0 || repairInstanceLoading}
+              allowClear
+            />
+            <Button
+              type="primary"
+              icon={<ToolOutlined />}
+              disabled={!selectedRepairInstance}
+              loading={repairInstanceLoading}
+              onClick={onOpenRepairInstance}
+            >
+              修复
+            </Button>
+            <Text type="secondary">重新安装版本、重新生成 venv、清空 Python 缓存</Text>
+          </div>
         </Space>
       </div>
 

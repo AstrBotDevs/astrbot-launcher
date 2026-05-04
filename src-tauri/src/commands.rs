@@ -448,6 +448,17 @@ pub async fn clear_pycache(instance_id: String, state: State<'_, AppState>) -> R
 }
 
 #[tauri::command]
+pub async fn repair_instance(
+    app_handle: AppHandle,
+    instance_id: String,
+    preserve_scope: instance::RepairPreserveScope,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    let _guard = state.process_manager.acquire_guard(&instance_id)?;
+    instance::repair_instance(&instance_id, preserve_scope, &app_handle).await
+}
+
+#[tauri::command]
 pub async fn rebuild_instance_manifest(
     state: State<'_, AppState>,
 ) -> Result<instance::RebuildInstanceManifestResult> {

@@ -161,6 +161,12 @@ export interface DeployProgress {
 
 export type DeployType = 'start' | 'upgrade' | 'downgrade' | null;
 
+export type RepairPreserveScope =
+  | 'data_directory'
+  | 'config_and_data_files'
+  | 'core_config_and_data_files'
+  | 'database_only';
+
 export interface DeployState {
   instanceName: string;
   deployType: 'start' | 'upgrade' | 'downgrade';
