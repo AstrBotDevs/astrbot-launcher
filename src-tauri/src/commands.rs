@@ -447,6 +447,22 @@ pub async fn clear_pycache(instance_id: String, state: State<'_, AppState>) -> R
     instance::clear_pycache(&instance_id)
 }
 
+#[tauri::command]
+pub async fn rebuild_instance_manifest(
+    state: State<'_, AppState>,
+) -> Result<instance::RebuildInstanceManifestResult> {
+    if !state.process_manager.get_active_ids().is_empty() {
+        return Err(AppError::instance_running());
+    }
+
+    let result = tokio::task::spawn_blocking(instance::rebuild_instance_manifest_from_disk)
+        .await
+        .map_err(|e| {
+            AppError::process(format!("Rebuild instance manifest task panicked: {}", e))
+        })??;
+    Ok(result)
+}
+
 // === Instance Management ===
 
 #[tauri::command]

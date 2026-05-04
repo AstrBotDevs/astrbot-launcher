@@ -1,5 +1,5 @@
 import { Alert, Button, Card, Select, Space, Switch, Typography } from 'antd';
-import { PlayCircleOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
 
@@ -61,16 +61,18 @@ interface TroubleshootingCardProps {
   selectedDataInstance: string | null;
   selectedVenvInstance: string | null;
   selectedPycacheInstance: string | null;
-  confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | null;
+  confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | 'rebuildManifest' | null;
   clearDataLoading: boolean;
   clearVenvLoading: boolean;
   clearPycacheLoading: boolean;
+  rebuildManifestLoading: boolean;
   onSelectDataInstance: (id: string | null) => void;
   onSelectVenvInstance: (id: string | null) => void;
   onSelectPycacheInstance: (id: string | null) => void;
   onOpenClearData: () => void;
   onOpenClearVenv: () => void;
   onOpenClearPycache: () => void;
+  onOpenRebuildManifest: () => void;
   onIgnoreExternalPathChange: (checked: boolean) => void;
 }
 
@@ -87,12 +89,14 @@ export function TroubleshootingCard({
   clearDataLoading,
   clearVenvLoading,
   clearPycacheLoading,
+  rebuildManifestLoading,
   onSelectDataInstance,
   onSelectVenvInstance,
   onSelectPycacheInstance,
   onOpenClearData,
   onOpenClearVenv,
   onOpenClearPycache,
+  onOpenRebuildManifest,
   onIgnoreExternalPathChange,
 }: TroubleshootingCardProps) {
   return (
@@ -123,6 +127,19 @@ export function TroubleshootingCard({
 
       <div style={{ marginBottom: 24 }}>
         <Space orientation="vertical" style={{ width: '100%' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Text style={{ width: 140 }}>重建实例清单:</Text>
+            <Button
+              danger
+              icon={<ReloadOutlined />}
+              loading={rebuildManifestLoading}
+              disabled={rebuildManifestLoading || runningInstancesCount > 0}
+              onClick={onOpenRebuildManifest}
+            >
+              扫描并重建
+            </Button>
+            <Text type="secondary">扫描当前文件并重建实例与版本状态，适用于数据库异常丢失</Text>
+          </div>
           <ActionRow
             label="清空 data 目录"
             options={stoppedInstanceOptions}
