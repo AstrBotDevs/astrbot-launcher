@@ -416,6 +416,8 @@ impl ProcessManager {
                         launch.executable_path,
                         launch.port,
                         launch.dashboard_enabled,
+                        #[cfg(target_os = "windows")]
+                        launch.job_object,
                     )));
                 }
                 drop(state);

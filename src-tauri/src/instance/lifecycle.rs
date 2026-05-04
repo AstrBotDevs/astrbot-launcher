@@ -44,6 +44,8 @@ pub struct LaunchResult {
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
+    #[cfg(target_os = "windows")]
+    pub job_object: crate::process::JobObject,
 }
 
 fn cancel_startup_due_to_shutdown(
@@ -67,6 +69,13 @@ fn cancel_startup_due_to_shutdown(
     Err(AppError::process(format!(
         "Cannot start instance {instance_id}: application is shutting down"
     )))
+}
+
+#[cfg(target_os = "windows")]
+fn assign_child_to_job_object(pid: u32) -> Result<crate::process::JobObject> {
+    let job_object = crate::process::JobObject::create_kill_on_close()?;
+    job_object.assign_process_by_pid(pid)?;
+    Ok(job_object)
 }
 
 /// Resolve the executable path for a freshly spawned child, killing it on failure.
@@ -203,6 +212,8 @@ pub async fn launch_instance(
     let pid = child
         .id()
         .ok_or_else(|| AppError::process("Failed to get process ID"))?;
+    #[cfg(target_os = "windows")]
+    let job_object = assign_child_to_job_object(pid)?;
     let executable_path = resolve_child_executable_path(&mut child, pid).await?;
 
     let stdout = child
@@ -295,6 +306,8 @@ pub async fn launch_instance(
                 executable_path,
                 port,
                 dashboard_enabled,
+                #[cfg(target_os = "windows")]
+                job_object,
             })
         }
         exit_result = &mut exit_rx => {

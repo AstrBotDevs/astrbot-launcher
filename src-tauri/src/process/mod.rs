@@ -20,6 +20,8 @@ pub use control::{
     graceful_shutdown, is_expected_process_alive, resolve_process_executable_path,
 };
 pub use manager::ProcessManager;
+#[cfg(target_os = "windows")]
+pub(crate) use win_api::JobObject;
 
 /// Timeout (in seconds) for waiting for the startup log message.
 pub const STARTUP_TIMEOUT_SECS: u64 = 300;
@@ -68,6 +70,8 @@ pub struct InstanceProcess {
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
+    #[cfg(target_os = "windows")]
+    pub(crate) _job_object: JobObject,
     /// Number of consecutive failed liveness probes.
     /// Always 0 on non-Windows (no retry mechanism).
     pub(crate) alive_failure_count: u32,
@@ -98,12 +102,15 @@ impl InstanceProcess {
         executable_path: PathBuf,
         port: u16,
         dashboard_enabled: bool,
+        #[cfg(target_os = "windows")] job_object: JobObject,
     ) -> Self {
         Self {
             pid,
             executable_path,
             port,
             dashboard_enabled,
+            #[cfg(target_os = "windows")]
+            _job_object: job_object,
             alive_failure_count: 0,
             next_alive_check_at: None,
         }
