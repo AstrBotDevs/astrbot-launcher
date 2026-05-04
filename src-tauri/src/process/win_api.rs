@@ -1,28 +1,35 @@
 //! Windows native API helpers for process management.
 
 use std::collections::HashSet;
+use std::ffi::c_void;
 use std::ffi::OsString;
 use std::fmt;
 use std::os::windows::ffi::{OsStrExt as _, OsStringExt as _};
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use windows::core::{PCWSTR, PWSTR};
+use windows::core::{Owned, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_MAX_SESSIONS_REACHED, ERROR_MORE_DATA,
-    ERROR_SUCCESS, NO_ERROR, STILL_ACTIVE, WIN32_ERROR,
+    ERROR_SUCCESS, HANDLE, NO_ERROR, STILL_ACTIVE, WIN32_ERROR,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     GetExtendedTcpTable, MIB_TCP6ROW_OWNER_PID, MIB_TCP6TABLE_OWNER_PID, MIB_TCPROW_OWNER_PID,
     MIB_TCPTABLE_OWNER_PID, TCP_TABLE_OWNER_PID_LISTENER,
 };
 use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 use windows::Win32::System::RestartManager::{
     RmEndSession, RmGetList, RmRegisterResources, RmStartSession, CCH_RM_SESSION_KEY,
     RM_PROCESS_INFO,
 };
 use windows::Win32::System::Threading::{
     GetExitCodeProcess, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
 };
 
 /// Maximum number of retries when the TCP table changes between size query and data fetch.
@@ -36,6 +43,77 @@ pub struct LockingProcessInfo {
     pub app_name: String,
     pub service_short_name: String,
     pub executable_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobObject {
+    inner: Arc<Owned<HANDLE>>,
+}
+
+// Safety invariants:
+// - JobObject only owns launcher-created job handles in this process.
+// - The handle is placed in `Owned<HANDLE>` immediately after creation and is
+//   never exposed outside this type, so it is closed exactly once when the last
+//   Arc clone is dropped.
+// - Windows kernel handles are valid across threads in the owning process.
+//   The `windows` crate represents HANDLE as a raw pointer and does not mark it
+//   Send/Sync, so the process manager needs this wrapper boundary.
+unsafe impl Send for JobObject {}
+unsafe impl Sync for JobObject {}
+
+impl JobObject {
+    /// Create a Windows Job Object that terminates all assigned processes when
+    /// the final launcher-owned job handle is closed.
+    pub fn create_kill_on_close() -> crate::error::Result<Self> {
+        let handle = unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(|e| {
+            crate::error::AppError::process(format!("Failed to create job object: {e}"))
+        })?;
+        let handle = unsafe { Owned::new(handle) };
+
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+        unsafe {
+            SetInformationJobObject(
+                *handle,
+                JobObjectExtendedLimitInformation,
+                std::ptr::addr_of!(limits).cast::<c_void>(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        }
+        .map_err(|e| {
+            crate::error::AppError::process(format!(
+                "Failed to configure job object kill-on-close: {e}"
+            ))
+        })?;
+
+        Ok(Self {
+            inner: Arc::new(handle),
+        })
+    }
+
+    /// Assign a process to this job object using the access rights required by
+    /// `AssignProcessToJobObject`: PROCESS_SET_QUOTA and PROCESS_TERMINATE.
+    pub fn assign_process_by_pid(&self, pid: u32) -> crate::error::Result<()> {
+        let process_handle =
+            unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, false, pid) }.map_err(
+                |e| {
+                    crate::error::AppError::process(format!(
+                        "Failed to open PID {pid} for job object assignment: {e}"
+                    ))
+                },
+            )?;
+        let process_handle = unsafe { Owned::new(process_handle) };
+
+        let result =
+            unsafe { AssignProcessToJobObject(**self.inner, *process_handle) }.map_err(|e| {
+                crate::error::AppError::process(format!(
+                    "Failed to assign PID {pid} to job object: {e}"
+                ))
+            });
+
+        result
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
