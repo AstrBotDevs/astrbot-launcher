@@ -358,4 +358,3 @@ pub async fn shutdown_instance(pid: u32, executable_path: PathBuf) -> Result<()>
     .await
     .map_err(|e| AppError::process(format!("Shutdown task panicked: {}", e)))?
 }
-

@@ -1,6 +1,6 @@
 [package]
 name = "astrbot-launcher"
-version = "0.3.2"
+version = "0.3.3"
 description = "AstrBot desktop launcher built with Tauri"
 authors = ["Raven95676 <raven95676@gmail.com>"]
 edition = "2021"
