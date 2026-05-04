@@ -83,13 +83,7 @@ export function RepairInstanceModal({
           </Space>
         </Radio.Group>
 
-        {mayLoseData && (
-          <Alert
-            type="warning"
-            showIcon
-            message="修复后的实例可能会有数据丢失"
-          />
-        )}
+        {mayLoseData && <Alert type="warning" showIcon message="修复后的实例可能会有数据丢失" />}
       </Space>
     </Modal>
   );

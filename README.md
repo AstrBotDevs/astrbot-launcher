@@ -40,7 +40,7 @@ AstrBot Launcher是一款用于图形化管理AstrBot的桌面应用程序，提
 ### DLL加载失败（常见于Windows ARM64）
 
 ```text
-ValueError: the greenlet library is required to use this function.  
+ValueError: the greenlet library is required to use this function.
 DLL load failed while importing _greenlet: The specified module could not be found.
 ```
 
@@ -56,9 +56,9 @@ DLL load failed while importing _greenlet: The specified module could not be fou
 ### 依赖同步失败
 
 ```text
-uv sync failed  
-Failed to uninstall package ...  
-Installation may result in an incomplete environment  
+uv sync failed
+Failed to uninstall package ...
+Installation may result in an incomplete environment
 missing RECORD file
 ```
 
@@ -72,7 +72,7 @@ missing RECORD file
 ### OS error 5 拒绝访问
 
 ```text
-OS error 5  
+OS error 5
 拒绝访问
 Access is denied
 ```

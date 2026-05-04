@@ -1,0 +1,47 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+        exclude: >
+          (?x)^(
+            tsconfig\.json|
+            tsconfig\.node\.json
+          )$
+      - id: check-added-large-files
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --manifest-path src-tauri/Cargo.toml
+        language: system
+        types_or: [rust]
+        pass_filenames: false
+
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+        language: system
+        types_or: [rust]
+        pass_filenames: false
+
+      - id: eslint
+        name: eslint
+        entry: npx eslint src
+        language: system
+        files: ^src/
+        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: false
+
+      - id: prettier
+        name: prettier
+        entry: npx prettier --write "src/**/*.{ts,tsx}"
+        language: system
+        files: ^src/
+        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: false
