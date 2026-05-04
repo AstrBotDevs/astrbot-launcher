@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GitHubRelease, AppSnapshot } from './types';
+import type { RepairPreserveScope } from './types';
 
 type LockCheckRequest =
   | {
@@ -79,6 +80,8 @@ export const api = {
     }),
   clearInstanceVenv: (instanceId: string) => invoke<void>('clear_instance_venv', { instanceId }),
   clearPycache: (instanceId: string) => invoke<void>('clear_pycache', { instanceId }),
+  repairInstance: (instanceId: string, preserveScope: RepairPreserveScope) =>
+    invoke<void>('repair_instance', { instanceId, preserveScope }),
   rebuildInstanceManifest: () =>
     invoke<{ instances: number; versions: number }>('rebuild_instance_manifest'),
 

@@ -51,7 +51,7 @@ pub fn clear_pycache(instance_id: &str) -> Result<()> {
     Ok(())
 }
 
-fn clear_pycache_recursive(dir: &Path) -> Result<()> {
+pub(super) fn clear_pycache_recursive(dir: &Path) -> Result<()> {
     if !dir.exists() {
         return Ok(());
     }

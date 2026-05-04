@@ -24,3 +24,4 @@ pub use rebuild::{rebuild_instance_manifest_from_disk, RebuildInstanceManifestRe
 
 // Re-export cleanup
 pub use cleanup::{clear_instance_data, clear_instance_venv, clear_pycache};
+pub use deploy::{repair_instance, RepairPreserveScope};

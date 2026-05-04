@@ -10,11 +10,13 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { GeneralSettingsCard } from '../components/advanced/GeneralSettingsCard';
 import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
 import { ProxySettingsCard } from '../components/advanced/ProxySettingsCard';
+import { RepairInstanceModal } from '../components/advanced/RepairInstanceModal';
 import { SourceSettingsCard } from '../components/advanced/SourceSettingsCard';
 import { TroubleshootingCard } from '../components/advanced/TroubleshootingCard';
 import { PageHeader } from '../components/PageHeader';
 import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
+import type { RepairPreserveScope } from '../types';
 import {
   normalizeInputValue,
   validateGithubProxy,
@@ -86,9 +88,13 @@ export default function Advanced() {
   const [selectedDataInstance, setSelectedDataInstance] = useState<string | null>(null);
   const [selectedVenvInstance, setSelectedVenvInstance] = useState<string | null>(null);
   const [selectedPycacheInstance, setSelectedPycacheInstance] = useState<string | null>(null);
+  const [selectedRepairInstance, setSelectedRepairInstance] = useState<string | null>(null);
+  const [repairPreserveScope, setRepairPreserveScope] =
+    useState<RepairPreserveScope>('data_directory');
 
   // Modal state
   const [confirmModal, setConfirmModal] = useState<ConfirmModalType>(null);
+  const [repairModalOpen, setRepairModalOpen] = useState(false);
   const { lockCheckModal, closeLockCheckModal, handleLockCheckError } =
     useLockCheckModal<LockCheckRetryPayload>();
 
@@ -457,6 +463,44 @@ export default function Advanced() {
     });
   };
 
+  const handleRepairInstance = async () => {
+    if (!selectedRepairInstance) return;
+
+    const instanceId = selectedRepairInstance;
+    await runOperation({
+      key: OPERATION_KEYS.advancedRepairInstance(instanceId),
+      reloadBefore: true,
+      reloadAfter: false,
+      task: async () => {
+        const { instances: latestInstances } = useAppStore.getState();
+        const latestInstance = findLatestOrSkip(
+          latestInstances,
+          (i) => i.id === instanceId,
+          '实例不存在或已被删除'
+        );
+        if (latestInstance === SKIP_OPERATION) {
+          setSelectedRepairInstance(null);
+          setRepairModalOpen(false);
+          return SKIP_OPERATION;
+        }
+
+        if (latestInstance.state !== 'stopped') {
+          message.warning('请先停止实例再修复');
+          return SKIP_OPERATION;
+        }
+
+        await api.repairInstance(instanceId, repairPreserveScope);
+      },
+      onSuccess: () => {
+        message.success('实例修复完成');
+        setSelectedRepairInstance(null);
+        setRepairPreserveScope('data_directory');
+        setRepairModalOpen(false);
+        void reloadSnapshot({ throwOnError: true });
+      },
+    });
+  };
+
   const instanceOptions = instances.map((i) => ({
     label: i.name,
     value: i.id,
@@ -478,6 +522,9 @@ export default function Advanced() {
     : false;
   const clearPycacheLoading = selectedPycacheInstance
     ? operations[OPERATION_KEYS.advancedClearPycache(selectedPycacheInstance)] || false
+    : false;
+  const repairInstanceLoading = selectedRepairInstance
+    ? operations[OPERATION_KEYS.advancedRepairInstance(selectedRepairInstance)] || false
     : false;
   const ignoreExternalPathSaving =
     operations[OPERATION_KEYS.advancedSaveIgnoreExternalPath] || false;
@@ -531,8 +578,7 @@ export default function Advanced() {
       case 'rebuildManifest':
         return {
           title: '警告',
-          content:
-            '确定扫描当前文件并重建实例清单？这会强制使用磁盘上数据生成实例清单。',
+          content: '确定扫描当前文件并重建实例清单？这会强制使用磁盘上数据生成实例清单。',
           onOk: () => void handleRebuildInstanceManifest(),
           isDanger: true,
         };
@@ -620,19 +666,32 @@ export default function Advanced() {
         selectedDataInstance={selectedDataInstance}
         selectedVenvInstance={selectedVenvInstance}
         selectedPycacheInstance={selectedPycacheInstance}
+        selectedRepairInstance={selectedRepairInstance}
         confirmModal={confirmModal}
         clearDataLoading={clearDataLoading}
         clearVenvLoading={clearVenvLoading}
         clearPycacheLoading={clearPycacheLoading}
+        repairInstanceLoading={repairInstanceLoading}
         rebuildManifestLoading={rebuildManifestLoading}
         onSelectDataInstance={setSelectedDataInstance}
         onSelectVenvInstance={setSelectedVenvInstance}
         onSelectPycacheInstance={setSelectedPycacheInstance}
+        onSelectRepairInstance={setSelectedRepairInstance}
         onOpenClearData={() => setConfirmModal('clearData')}
         onOpenClearVenv={() => setConfirmModal('clearVenv')}
         onOpenClearPycache={() => setConfirmModal('clearPycache')}
+        onOpenRepairInstance={() => setRepairModalOpen(true)}
         onOpenRebuildManifest={() => setConfirmModal('rebuildManifest')}
         onIgnoreExternalPathChange={handleIgnoreExternalPathChange}
+      />
+
+      <RepairInstanceModal
+        open={repairModalOpen}
+        loading={repairInstanceLoading}
+        preserveScope={repairPreserveScope}
+        onScopeChange={setRepairPreserveScope}
+        onConfirm={() => void handleRepairInstance()}
+        onCancel={() => setRepairModalOpen(false)}
       />
 
       {/* Confirm Modal */}
