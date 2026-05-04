@@ -213,7 +213,13 @@ pub async fn launch_instance(
         .id()
         .ok_or_else(|| AppError::process("Failed to get process ID"))?;
     #[cfg(target_os = "windows")]
-    let job_object = assign_child_to_job_object(pid)?;
+    let job_object = match assign_child_to_job_object(pid) {
+        Ok(job_object) => job_object,
+        Err(e) => {
+            let _ = child.kill().await;
+            return Err(e);
+        }
+    };
     let executable_path = resolve_child_executable_path(&mut child, pid).await?;
 
     let stdout = child

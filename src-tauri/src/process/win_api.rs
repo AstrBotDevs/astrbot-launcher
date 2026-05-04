@@ -50,9 +50,14 @@ pub struct JobObject {
     inner: Arc<Owned<HANDLE>>,
 }
 
-// Windows kernel handles are valid across threads in the owning process. The
-// `windows` crate keeps HANDLE as a raw pointer and does not auto-mark it
-// Send/Sync, so the process manager's shared state needs this wrapper boundary.
+// Safety invariants:
+// - JobObject only owns launcher-created job handles in this process.
+// - The handle is placed in `Owned<HANDLE>` immediately after creation and is
+//   never exposed outside this type, so it is closed exactly once when the last
+//   Arc clone is dropped.
+// - Windows kernel handles are valid across threads in the owning process.
+//   The `windows` crate represents HANDLE as a raw pointer and does not mark it
+//   Send/Sync, so the process manager needs this wrapper boundary.
 unsafe impl Send for JobObject {}
 unsafe impl Sync for JobObject {}
 
@@ -63,13 +68,14 @@ impl JobObject {
         let handle = unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(|e| {
             crate::error::AppError::process(format!("Failed to create job object: {e}"))
         })?;
+        let handle = unsafe { Owned::new(handle) };
 
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
 
         unsafe {
             SetInformationJobObject(
-                handle,
+                *handle,
                 JobObjectExtendedLimitInformation,
                 std::ptr::addr_of!(limits).cast::<c_void>(),
                 std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
@@ -82,7 +88,7 @@ impl JobObject {
         })?;
 
         Ok(Self {
-            inner: Arc::new(unsafe { Owned::new(handle) }),
+            inner: Arc::new(handle),
         })
     }
 
@@ -97,15 +103,15 @@ impl JobObject {
                     ))
                 },
             )?;
+        let process_handle = unsafe { Owned::new(process_handle) };
 
         let result =
-            unsafe { AssignProcessToJobObject(**self.inner, process_handle) }.map_err(|e| {
+            unsafe { AssignProcessToJobObject(**self.inner, *process_handle) }.map_err(|e| {
                 crate::error::AppError::process(format!(
                     "Failed to assign PID {pid} to job object: {e}"
                 ))
             });
 
-        let _ = unsafe { CloseHandle(process_handle) };
         result
     }
 }

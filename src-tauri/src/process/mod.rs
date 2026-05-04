@@ -70,6 +70,9 @@ pub struct InstanceProcess {
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
+    /// Keeps the Windows job handle alive while the instance is tracked. When
+    /// the slot is removed, dropping this handle lets KILL_ON_JOB_CLOSE clean up
+    /// any remaining processes in the job.
     #[cfg(target_os = "windows")]
     pub(crate) _job_object: JobObject,
     /// Number of consecutive failed liveness probes.
