@@ -79,6 +79,8 @@ export const api = {
     }),
   clearInstanceVenv: (instanceId: string) => invoke<void>('clear_instance_venv', { instanceId }),
   clearPycache: (instanceId: string) => invoke<void>('clear_pycache', { instanceId }),
+  rebuildInstanceManifest: () =>
+    invoke<{ instances: number; versions: number }>('rebuild_instance_manifest'),
 
   // ========================================
   // Instance Management

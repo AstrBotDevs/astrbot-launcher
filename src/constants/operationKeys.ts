@@ -29,4 +29,5 @@ export const OPERATION_KEYS = {
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,
   advancedClearVenv: (instanceId: string) => `adv:venv-${instanceId}`,
   advancedClearPycache: (instanceId: string) => `adv:pycache-${instanceId}`,
+  advancedRebuildInstanceManifest: 'adv:rebuild-instance-manifest',
 } as const;

@@ -24,7 +24,7 @@ import {
   validatePypiMirror,
 } from './advancedSettings.validation';
 
-type ConfirmModalType = 'clearData' | 'clearVenv' | 'clearPycache' | null;
+type ConfirmModalType = 'clearData' | 'clearVenv' | 'clearPycache' | 'rebuildManifest' | null;
 type SaveSettingOptions = {
   key: string;
   save: () => Promise<void>;
@@ -50,7 +50,7 @@ type SourceSettingConfig = {
   successMessage: string;
   reloadBefore?: boolean;
 };
-type ClearActionType = Exclude<ConfirmModalType, null>;
+type ClearActionType = 'clearData' | 'clearVenv' | 'clearPycache';
 type LockCheckRetryPayload = {
   retry: () => Promise<void>;
   operationKey: string;
@@ -434,6 +434,29 @@ export default function Advanced() {
     await payload.retry();
   };
 
+  const handleRebuildInstanceManifest = async () => {
+    await runOperation({
+      key: OPERATION_KEYS.advancedRebuildInstanceManifest,
+      reloadBefore: true,
+      reloadAfter: false,
+      task: async () => {
+        const { instances: latestInstances } = useAppStore.getState();
+        if (latestInstances.some((i) => i.state !== 'stopped')) {
+          message.warning('请先停止所有实例再重建实例清单');
+          return SKIP_OPERATION;
+        }
+
+        const result = await api.rebuildInstanceManifest();
+        await reloadSnapshot({ throwOnError: true });
+        return result;
+      },
+      onSuccess: (result) => {
+        message.success(`实例清单已重建：${result.instances} 个实例，${result.versions} 个版本`);
+        setConfirmModal(null);
+      },
+    });
+  };
+
   const instanceOptions = instances.map((i) => ({
     label: i.name,
     value: i.id,
@@ -458,6 +481,8 @@ export default function Advanced() {
     : false;
   const ignoreExternalPathSaving =
     operations[OPERATION_KEYS.advancedSaveIgnoreExternalPath] || false;
+  const rebuildManifestLoading =
+    operations[OPERATION_KEYS.advancedRebuildInstanceManifest] || false;
   const lockCheckExtensionWhitelistSaving =
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
   const lockCheckModalLoading =
@@ -473,6 +498,8 @@ export default function Advanced() {
         return clearVenvLoading;
       case 'clearPycache':
         return clearPycacheLoading;
+      case 'rebuildManifest':
+        return rebuildManifestLoading;
       default:
         return false;
     }
@@ -500,6 +527,14 @@ export default function Advanced() {
           content: '确定清空该实例的 Python 缓存？',
           onOk: () => void handleClearByType('clearPycache'),
           isDanger: false,
+        };
+      case 'rebuildManifest':
+        return {
+          title: '警告',
+          content:
+            '确定扫描当前文件并重建实例清单？这会强制使用磁盘上数据生成实例清单。',
+          onOk: () => void handleRebuildInstanceManifest(),
+          isDanger: true,
         };
       default:
         return null;
@@ -589,12 +624,14 @@ export default function Advanced() {
         clearDataLoading={clearDataLoading}
         clearVenvLoading={clearVenvLoading}
         clearPycacheLoading={clearPycacheLoading}
+        rebuildManifestLoading={rebuildManifestLoading}
         onSelectDataInstance={setSelectedDataInstance}
         onSelectVenvInstance={setSelectedVenvInstance}
         onSelectPycacheInstance={setSelectedPycacheInstance}
         onOpenClearData={() => setConfirmModal('clearData')}
         onOpenClearVenv={() => setConfirmModal('clearVenv')}
         onOpenClearPycache={() => setConfirmModal('clearPycache')}
+        onOpenRebuildManifest={() => setConfirmModal('rebuildManifest')}
         onIgnoreExternalPathChange={handleIgnoreExternalPathChange}
       />
 
