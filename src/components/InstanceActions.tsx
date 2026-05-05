@@ -100,7 +100,7 @@ export function InstanceActions({
         <Button
           type="text"
           icon={<FolderOpenOutlined />}
-          disabled={isDeleting}
+          disabled={isDeploying || isDeleting}
           onClick={() => onOpenCoreFolder(instance)}
         />
       </Tooltip>

@@ -3,7 +3,7 @@ use std::sync::RwLock;
 
 use reqwest::Client;
 use tauri::{AppHandle, State};
-use tauri_plugin_opener::OpenerExt as _;
+use tauri_plugin_opener::open_path;
 
 use crate::backup;
 use crate::component;
@@ -478,7 +478,7 @@ pub async fn rebuild_instance_manifest(
 // === Instance Management ===
 
 #[tauri::command]
-pub async fn open_instance_core_folder(app_handle: AppHandle, instance_id: String) -> Result<()> {
+pub async fn open_instance_core_folder(instance_id: String) -> Result<()> {
     validate_instance_id(&instance_id)?;
     let core_dir = get_instance_core_dir(&instance_id);
 
@@ -488,10 +488,7 @@ pub async fn open_instance_core_folder(app_handle: AppHandle, instance_id: Strin
         ));
     }
 
-    app_handle
-        .opener()
-        .open_path(core_dir.to_string_lossy().into_owned(), None::<&str>)
-        .map_err(|e| AppError::io(e.to_string()))
+    open_path(&core_dir, None::<&str>).map_err(|e| AppError::io(e.to_string()))
 }
 
 #[tauri::command]
