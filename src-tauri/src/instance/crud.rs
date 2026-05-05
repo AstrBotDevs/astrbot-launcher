@@ -265,7 +265,7 @@ pub fn list_instances(
 ) -> Vec<InstanceStatus> {
     let runtime_info = process_manager.get_runtime_info();
 
-    manifest
+    let mut instances: Vec<InstanceStatus> = manifest
         .instances
         .iter()
         .map(|(id, inst)| {
@@ -297,5 +297,8 @@ pub fn list_instances(
                 configured_port: inst.port,
             }
         })
-        .collect()
+        .collect();
+
+    instances.sort_by_cached_key(|a| a.id.clone());
+    instances
 }
