@@ -3,6 +3,7 @@ use std::sync::RwLock;
 
 use reqwest::Client;
 use tauri::{AppHandle, State};
+use tauri_plugin_opener::open_path;
 
 use crate::backup;
 use crate::component;
@@ -475,6 +476,20 @@ pub async fn rebuild_instance_manifest(
 }
 
 // === Instance Management ===
+
+#[tauri::command]
+pub async fn open_instance_core_folder(instance_id: String) -> Result<()> {
+    validate_instance_id(&instance_id)?;
+    let core_dir = get_instance_core_dir(&instance_id);
+
+    if !core_dir.is_dir() {
+        return Err(AppError::other(
+            "实例 core 文件夹不存在，可以尝试先运行一次实例后再打开。",
+        ));
+    }
+
+    open_path(&core_dir, None::<&str>).map_err(|e| AppError::io(e.to_string()))
+}
 
 #[tauri::command]
 pub async fn create_instance(name: String, version: String, port: u16) -> Result<()> {

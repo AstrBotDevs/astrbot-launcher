@@ -4,6 +4,7 @@ import {
   PauseCircleOutlined,
   ReloadOutlined,
   DeleteOutlined,
+  FolderOpenOutlined,
   GlobalOutlined,
   SettingOutlined,
 } from '@ant-design/icons';
@@ -19,6 +20,7 @@ interface InstanceActionsProps {
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
   onOpen: (instance: InstanceStatus) => void;
+  onOpenCoreFolder: (instance: InstanceStatus) => void;
   onEdit: (instance: InstanceStatus) => void;
   onDelete: (instance: InstanceStatus) => void;
 }
@@ -33,6 +35,7 @@ export function InstanceActions({
   onStop,
   onRestart,
   onOpen,
+  onOpenCoreFolder,
   onEdit,
   onDelete,
 }: InstanceActionsProps) {
@@ -93,6 +96,14 @@ export function InstanceActions({
           />
         </Tooltip>
       )}
+      <Tooltip title="打开 core 文件夹">
+        <Button
+          type="text"
+          icon={<FolderOpenOutlined />}
+          disabled={isDeploying || isDeleting}
+          onClick={() => onOpenCoreFolder(instance)}
+        />
+      </Tooltip>
       <Tooltip title="设置">
         <Button
           type="text"
