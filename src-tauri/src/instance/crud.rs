@@ -299,6 +299,6 @@ pub fn list_instances(
         })
         .collect();
 
-    instances.sort_by_cached_key(|a| a.name.to_lowercase());
+    instances.sort_by_cached_key(|a| a.id.clone());
     instances
 }
