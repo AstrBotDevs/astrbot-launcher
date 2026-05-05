@@ -19,6 +19,7 @@ interface DashboardColumnsOptions {
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
   onOpen: (instance: InstanceStatus) => void;
+  onOpenCoreFolder: (instance: InstanceStatus) => void;
   onEdit: (instance: InstanceStatus) => void;
   onDelete: (instance: InstanceStatus) => void;
 }
@@ -36,6 +37,7 @@ export function buildDashboardColumns({
   onStop,
   onRestart,
   onOpen,
+  onOpenCoreFolder,
   onEdit,
   onDelete,
 }: DashboardColumnsOptions): TableColumnsType<InstanceStatus> {
@@ -44,13 +46,14 @@ export function buildDashboardColumns({
       title: '名称',
       dataIndex: 'name',
       key: 'name',
+      ellipsis: true,
       render: (text: string) => <strong>{text}</strong>,
     },
     {
       title: '状态',
       dataIndex: 'state',
       key: 'state',
-      width: 180,
+      width: 120,
       render: (_: string, record: InstanceStatus) => (
         <InstanceStatusTag instance={record} deployProgress={deployProgress} />
       ),
@@ -69,8 +72,7 @@ export function buildDashboardColumns({
       title: '版本',
       dataIndex: 'version',
       key: 'version',
-      width: 150,
-      ellipsis: true,
+      width: 120,
       render: (version: string, record: InstanceStatus) => (
         <Space size={4}>
           <span>{version}</span>
@@ -87,7 +89,7 @@ export function buildDashboardColumns({
     {
       title: '操作',
       key: 'action',
-      width: 240,
+      width: 280,
       render: (_: unknown, record: InstanceStatus) => {
         const deploying = isInstanceDeploying(record.id, deployProgress);
 
@@ -102,6 +104,7 @@ export function buildDashboardColumns({
             onStop={onStop}
             onRestart={onRestart}
             onOpen={onOpen}
+            onOpenCoreFolder={onOpenCoreFolder}
             onEdit={onEdit}
             onDelete={onDelete}
           />

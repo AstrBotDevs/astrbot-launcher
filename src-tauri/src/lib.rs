@@ -140,6 +140,7 @@ pub fn run() {
             commands::repair_instance,
             commands::rebuild_instance_manifest,
             // Instance Management
+            commands::open_instance_core_folder,
             commands::create_instance,
             commands::delete_instance,
             commands::update_instance,

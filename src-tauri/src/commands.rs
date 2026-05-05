@@ -3,6 +3,7 @@ use std::sync::RwLock;
 
 use reqwest::Client;
 use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt as _;
 
 use crate::backup;
 use crate::component;
@@ -475,6 +476,24 @@ pub async fn rebuild_instance_manifest(
 }
 
 // === Instance Management ===
+
+#[tauri::command]
+pub async fn open_instance_core_folder(app_handle: AppHandle, instance_id: String) -> Result<()> {
+    validate_instance_id(&instance_id)?;
+    let core_dir = get_instance_core_dir(&instance_id);
+
+    if !core_dir.is_dir() {
+        return Err(AppError::io(format!(
+            "Instance core folder does not exist: {}",
+            core_dir.display()
+        )));
+    }
+
+    app_handle
+        .opener()
+        .open_path(core_dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| AppError::io(e.to_string()))
+}
 
 #[tauri::command]
 pub async fn create_instance(name: String, version: String, port: u16) -> Result<()> {

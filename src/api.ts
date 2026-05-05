@@ -88,6 +88,8 @@ export const api = {
   // ========================================
   // Instance Management
   // ========================================
+  openInstanceCoreFolder: (instanceId: string) =>
+    invoke<void>('open_instance_core_folder', { instanceId }),
   createInstance: (name: string, version: string, port: number = 0) =>
     invoke<void>('create_instance', { name, version, port }),
   deleteInstance: (instanceId: string) => invoke<void>('delete_instance', { instanceId }),

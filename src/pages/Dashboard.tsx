@@ -389,6 +389,20 @@ export default function Dashboard() {
     [navigate]
   );
 
+  const handleOpenCoreFolder = useCallback(async (instance: InstanceStatus) => {
+    const { instances: latestInstances } = useAppStore.getState();
+    if (!latestInstances.some((i) => i.id === instance.id)) {
+      message.info('实例不存在或已被删除');
+      return;
+    }
+
+    try {
+      await api.openInstanceCoreFolder(instance.id);
+    } catch (error) {
+      handleApiError(error, '打开 core 文件夹失败');
+    }
+  }, []);
+
   const openEditModal = useCallback((instance: InstanceStatus) => {
     setEditingInstance(instance);
     setEditOpen(true);
@@ -414,6 +428,7 @@ export default function Dashboard() {
         onStop: handleStop,
         onRestart: handleRestart,
         onOpen: handleOpen,
+        onOpenCoreFolder: handleOpenCoreFolder,
         onEdit: openEditModal,
         onDelete: openDeleteModal,
       }),
@@ -430,6 +445,7 @@ export default function Dashboard() {
       handleStop,
       handleRestart,
       handleOpen,
+      handleOpenCoreFolder,
       openEditModal,
       openDeleteModal,
     ]
