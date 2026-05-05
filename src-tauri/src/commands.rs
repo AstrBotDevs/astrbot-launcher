@@ -483,10 +483,9 @@ pub async fn open_instance_core_folder(app_handle: AppHandle, instance_id: Strin
     let core_dir = get_instance_core_dir(&instance_id);
 
     if !core_dir.is_dir() {
-        return Err(AppError::io(format!(
-            "Instance core folder does not exist: {}",
-            core_dir.display()
-        )));
+        return Err(AppError::other(
+            "实例 core 文件夹不存在，可以尝试先运行一次实例后再打开。",
+        ));
     }
 
     app_handle
