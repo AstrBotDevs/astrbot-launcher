@@ -6,7 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
-use tauri::AppHandle;
+use serde::Serialize;
+use tauri::{AppHandle, Emitter as _};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -31,11 +32,82 @@ use crate::utils::validation::validate_instance_id;
 use crate::process::STARTUP_TIMEOUT_SECS;
 
 const STARTUP_COMPLETION_MARKERS: &[&str] = &["AstrBot started.", "AstrBot 启动完成"];
+const DEFAULT_USERNAME_LABEL: &str = "Initial username";
+const DEFAULT_PASSWORD_LABEL: &str = "Initial password";
+const CREDENTIAL_VALUE_PREFIXES: &[&str] = &[":", "："];
+#[derive(Clone, Serialize)]
+struct DefaultCredentialsDetected {
+    source: String,
+    display_name: String,
+    username: String,
+    password: String,
+}
+
+#[derive(Default)]
+struct DefaultCredentialsDetector {
+    username: Option<String>,
+    password: Option<String>,
+}
 
 fn is_startup_completion_log(line: &str) -> bool {
     STARTUP_COMPLETION_MARKERS
         .iter()
         .any(|marker| line.contains(marker))
+}
+
+fn clean_credential_value(raw_value: &str) -> Option<String> {
+    let mut value = raw_value.trim_start();
+
+    for prefix in CREDENTIAL_VALUE_PREFIXES {
+        if let Some(rest) = value.trim_start().strip_prefix(prefix) {
+            value = rest;
+            break;
+        }
+    }
+
+    let token = value
+        .trim_start()
+        .split_whitespace()
+        .next()?
+        .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | ',' | '，' | '。' | ';' | '；'));
+
+    (!token.is_empty()).then(|| token.to_string())
+}
+
+fn extract_credential_value(line: &str, label: &str) -> Option<String> {
+    let label_index = line.find(label)?;
+    clean_credential_value(&line[label_index + label.len()..])
+}
+
+impl DefaultCredentialsDetector {
+    fn push_line(
+        &mut self,
+        source: &str,
+        display_name: &str,
+        line: &str,
+    ) -> Option<DefaultCredentialsDetected> {
+        if let Some(username) = extract_credential_value(line, DEFAULT_USERNAME_LABEL) {
+            self.username = Some(username);
+        }
+
+        if let Some(password) = extract_credential_value(&line, DEFAULT_PASSWORD_LABEL) {
+            self.password = Some(password);
+        }
+
+        if self.username.is_none() || self.password.is_none() {
+            return None;
+        }
+
+        let username = self.username.take()?;
+        let password = self.password.take()?;
+
+        Some(DefaultCredentialsDetected {
+            source: source.to_string(),
+            display_name: display_name.to_string(),
+            username,
+            password,
+        })
+    }
 }
 
 /// Result of a successful instance launch.
@@ -296,12 +368,20 @@ pub async fn launch_instance(
     // Keep one sender in scope so receiver does not close early if stdout ends.
     let _startup_tx_guard = startup_tx.clone();
     let instance_id_stdout = instance_id.to_string();
+    let instance_name = instance_config.name.clone();
+    let app_handle_stdout = app_handle.clone();
     let mut stdout_reader = BufReader::new(stdout).lines();
 
     tokio::spawn(async move {
         let mut startup_sent = false;
+        let mut credentials_detector = DefaultCredentialsDetector::default();
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             log_channel::emit_log(&instance_id_stdout, "info", &line);
+            if let Some(credentials) =
+                credentials_detector.push_line(&instance_id_stdout, &instance_name, &line)
+            {
+                let _ = app_handle_stdout.emit("default-credentials-detected", credentials);
+            }
             if !startup_sent && is_startup_completion_log(&line) {
                 let _ = startup_tx.send(());
                 startup_sent = true;

@@ -1,6 +1,17 @@
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useEffect, useMemo } from 'react';
-import { Badge, Layout, Menu, ConfigProvider, App as AntdApp, theme } from 'antd';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import {
+  Badge,
+  Button,
+  Layout,
+  Menu,
+  ConfigProvider,
+  App as AntdApp,
+  Space,
+  Typography,
+  theme,
+} from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import {
   DesktopOutlined,
@@ -12,8 +23,9 @@ import {
 } from '@ant-design/icons';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TitleBar } from './components/TitleBar';
-import { AntdStaticProvider } from './antdStatic';
+import { AntdStaticProvider, message } from './antdStatic';
 import { useAppStore, useUpdateStore, initEventListeners, cleanupEventListeners } from './stores';
+import type { DefaultCredentialsDetected } from './types';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Versions = lazy(() => import('./pages/Versions'));
 const Backup = lazy(() => import('./pages/Backup'));
@@ -28,6 +40,71 @@ const UPDATE_INTERVAL_MS = 16 * 60 * 60 * 1000;
 
 // Height of the custom titlebar. Must stay in sync with .titlebar { height } in App.css.
 const TITLEBAR_HEIGHT = 40;
+
+function hashMessageKey(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function showDefaultCredentialsMessage(credentials: DefaultCredentialsDetected) {
+  if (!credentials.username || !credentials.password) return;
+
+  const messageKey = `default-credentials-${hashMessageKey(
+    `${credentials.source}\n${credentials.username}\n${credentials.password}`
+  )}`;
+
+  message.open({
+    key: messageKey,
+    type: 'info',
+    duration: 0,
+    content: (
+      <Space direction="vertical" size={4}>
+        <Typography.Text strong>{credentials.display_name} 默认账户密码</Typography.Text>
+        <Typography.Text>
+          用户名: <Typography.Text code>{credentials.username}</Typography.Text>
+        </Typography.Text>
+        <Typography.Text>
+          密码: <Typography.Text code>{credentials.password}</Typography.Text>
+        </Typography.Text>
+        <Button size="small" onClick={() => message.destroy(messageKey)}>
+          我已知晓
+        </Button>
+      </Space>
+    ),
+  });
+}
+
+function DefaultCredentialsListener() {
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    let disposed = false;
+
+    const setupListener = async () => {
+      const fn = await listen<DefaultCredentialsDetected>('default-credentials-detected', (event) =>
+        showDefaultCredentialsMessage(event.payload)
+      );
+
+      if (disposed) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    };
+
+    void setupListener();
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  return null;
+}
 
 function AppLayout() {
   const navigate = useNavigate();
@@ -165,6 +242,7 @@ function App({ isMacOS }: { isMacOS: boolean }) {
           {!isMacOS && <TitleBar />}
           <div style={{ flex: 1, height: 0, minHeight: 0, overflow: 'hidden' }}>
             <BrowserRouter>
+              <DefaultCredentialsListener />
               <Suspense>
                 <Routes>
                   <Route path="/webui/:instanceId" element={<WebUIView />} />
