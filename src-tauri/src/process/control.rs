@@ -334,6 +334,9 @@ pub fn find_available_port() -> Result<u16> {
 }
 
 pub fn check_port_available(host: &str, port: u16) -> Result<()> {
-    std::net::TcpListener::bind((host, port)).map_err(|_| AppError::port_occupied(port))?;
+    std::net::TcpListener::bind((host, port)).map_err(|e| match e.kind() {
+        std::io::ErrorKind::AddrInUse => AppError::port_occupied(port),
+        _ => AppError::invalid_host(format!("{host}: {e}")),
+    })?;
     Ok(())
 }

@@ -41,6 +41,8 @@ pub enum ErrorKind {
     ProcessLocking,
     /// Port is occupied
     PortOccupied,
+    /// Host address is invalid or not available
+    InvalidHost,
     /// Instance startup timed out
     StartupTimeout,
     /// Backup error
@@ -68,6 +70,7 @@ impl ErrorKind {
             Self::PortOccupied => 3004,
             Self::StartupTimeout => 3005,
             Self::ProcessLocking => 3006,
+            Self::InvalidHost => 3007,
             Self::Backup => 4001,
             Self::GitHub => 4002,
             Self::Other => 9999,
@@ -167,6 +170,10 @@ impl AppError {
             ErrorKind::PortOccupied,
             HashMap::from([("port".to_string(), port.to_string())]),
         )
+    }
+
+    pub fn invalid_host(host: impl Into<String>) -> Self {
+        Self::with_detail(ErrorKind::InvalidHost, host)
     }
 
     pub fn startup_timeout() -> Self {
