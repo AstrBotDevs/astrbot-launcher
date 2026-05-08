@@ -508,6 +508,7 @@ pub async fn update_instance(
     instance_id: String,
     name: Option<String>,
     version: Option<String>,
+    host: Option<String>,
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<()> {
@@ -516,6 +517,7 @@ pub async fn update_instance(
         &instance_id,
         name.as_deref(),
         version.as_deref(),
+        host.as_deref(),
         port,
         &app_handle,
     )

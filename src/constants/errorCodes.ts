@@ -13,6 +13,7 @@ export const ErrorCode = {
   PORT_OCCUPIED: 3004,
   STARTUP_TIMEOUT: 3005,
   PROCESS_LOCKING: 3006,
+  INVALID_HOST: 3007,
   BACKUP: 4001,
   GITHUB: 4002,
   OTHER: 9999,
@@ -36,6 +37,7 @@ const ERROR_TEMPLATES: Record<number, ErrorTemplate> = {
   [ErrorCode.PROCESS]: '进程错误: {detail}',
   [ErrorCode.PROCESS_LOCKING]: '{detail}',
   [ErrorCode.PORT_OCCUPIED]: '端口 {port} 已被占用',
+  [ErrorCode.INVALID_HOST]: '主机地址无效或不可用: {detail}',
   [ErrorCode.STARTUP_TIMEOUT]: '实例启动超时',
   [ErrorCode.BACKUP]: (p) =>
     p.backup_arch

@@ -14,6 +14,7 @@ pub struct InstanceStatus {
     pub version: String,
     pub dashboard_enabled: bool,
     pub pid_tracker_not_available: bool,
+    pub configured_host: String,
     pub configured_port: u16,
 }
 

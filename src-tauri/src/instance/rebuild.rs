@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use crate::config::{with_manifest_mut, InstalledVersion, InstanceConfig};
+use crate::config::{with_manifest_mut, InstalledVersion, InstanceConfig, DEFAULT_INSTANCE_HOST};
 use crate::error::{AppError, Result};
 use crate::utils::paths::{get_data_dir, get_versions_dir};
 use crate::utils::validation::validate_instance_id;
@@ -133,6 +133,7 @@ fn scan_instances() -> Result<HashMap<String, InstanceConfig>> {
         let instance = InstanceConfig {
             name: default_instance_name(&instance_id),
             version,
+            host: DEFAULT_INSTANCE_HOST.to_string(),
             port: 0,
             created_at: chrono::Utc::now().to_rfc3339(),
         };

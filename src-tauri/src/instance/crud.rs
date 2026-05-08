@@ -5,7 +5,9 @@ use tauri::AppHandle;
 use super::deploy::{deploy_instance_with_version, emit_progress};
 use super::types::{CmdConfig, InstanceStatus};
 use crate::backup::{create_backup, find_pending_auto_backup, restore_data_to_instance};
-use crate::config::{load_manifest, with_manifest_mut, AppManifest, InstanceConfig};
+use crate::config::{
+    load_manifest, with_manifest_mut, AppManifest, InstanceConfig, DEFAULT_INSTANCE_HOST,
+};
 use crate::error::{AppError, Result};
 use crate::process::{InstanceRuntimeInfo, InstanceState, ProcessManager};
 use crate::utils::paths::{get_instance_core_dir, get_instance_dir, get_instance_venv_dir};
@@ -27,11 +29,13 @@ fn update_instance_config(
     instance_id: &str,
     name: Option<&str>,
     version: Option<&str>,
+    host: Option<&str>,
     port: Option<u16>,
 ) -> Result<()> {
     let id = instance_id.to_string();
     let name_owned = name.map(ToOwned::to_owned);
     let version_owned = version.map(ToOwned::to_owned);
+    let host_owned = host.map(normalize_instance_host);
 
     with_manifest_mut(move |manifest| {
         let instance = manifest
@@ -45,11 +49,23 @@ fn update_instance_config(
         if let Some(ref v) = version_owned {
             instance.version = v.clone();
         }
+        if let Some(ref h) = host_owned {
+            instance.host = h.clone();
+        }
         if let Some(p) = port {
             instance.port = p;
         }
         Ok(())
     })
+}
+
+pub(super) fn normalize_instance_host(host: &str) -> String {
+    let host = host.trim();
+    if host.is_empty() {
+        DEFAULT_INSTANCE_HOST.to_string()
+    } else {
+        host.to_string()
+    }
 }
 
 pub(super) fn is_dashboard_enabled(instance_id: &str) -> bool {
@@ -112,6 +128,7 @@ pub fn create_instance(name: &str, version: &str, port: u16) -> Result<()> {
         let instance = InstanceConfig {
             name,
             version,
+            host: DEFAULT_INSTANCE_HOST.to_string(),
             port,
             created_at: chrono::Utc::now().to_rfc3339(),
         };
@@ -157,6 +174,7 @@ pub async fn update_instance(
     instance_id: &str,
     name: Option<&str>,
     version: Option<&str>,
+    host: Option<&str>,
     port: Option<u16>,
     app_handle: &AppHandle,
 ) -> Result<()> {
@@ -248,13 +266,13 @@ pub async fn update_instance(
 
         // Update config(version + optional name/port) after the operation completes successfully.
         // This prevents "config says new version" while the deployment hasn't fully finished.
-        update_instance_config(instance_id, name, Some(new_version.as_str()), port)?;
+        update_instance_config(instance_id, name, Some(new_version.as_str()), host, port)?;
 
         emit_progress(app_handle, instance_id, "done", "更新完成", 100);
         Ok(())
     } else {
         // No version change
-        update_instance_config(instance_id, name, version, port)
+        update_instance_config(instance_id, name, version, host, port)
     }
 }
 
@@ -294,6 +312,7 @@ pub fn list_instances(
                 version: inst.version.clone(),
                 dashboard_enabled,
                 pid_tracker_not_available,
+                configured_host: normalize_instance_host(&inst.host),
                 configured_port: inst.port,
             }
         })

@@ -93,11 +93,18 @@ export const api = {
   createInstance: (name: string, version: string, port: number = 0) =>
     invoke<void>('create_instance', { name, version, port }),
   deleteInstance: (instanceId: string) => invoke<void>('delete_instance', { instanceId }),
-  updateInstance: (instanceId: string, name?: string, version?: string, port?: number) =>
+  updateInstance: (
+    instanceId: string,
+    name?: string,
+    version?: string,
+    host?: string,
+    port?: number
+  ) =>
     invoke<void>('update_instance', {
       instanceId,
       name: name ?? null,
       version: version ?? null,
+      host: host ?? null,
       port: port ?? null,
     }),
   startInstance: (instanceId: string) => invoke<number>('start_instance', { instanceId }),
