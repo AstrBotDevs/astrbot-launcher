@@ -7,6 +7,7 @@ import {
   FolderOpenOutlined,
   GlobalOutlined,
   SettingOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import type { InstanceStatus } from '../types';
 
@@ -23,6 +24,7 @@ interface InstanceActionsProps {
   onOpenCoreFolder: (instance: InstanceStatus) => void;
   onEdit: (instance: InstanceStatus) => void;
   onDelete: (instance: InstanceStatus) => void;
+  onViewLogs: (instance: InstanceStatus) => void;
 }
 
 export function InstanceActions({
@@ -38,6 +40,7 @@ export function InstanceActions({
   onOpenCoreFolder,
   onEdit,
   onDelete,
+  onViewLogs,
 }: InstanceActionsProps) {
   const isActive = instance.state !== 'stopped';
   const canOpenWebUI =
@@ -102,6 +105,14 @@ export function InstanceActions({
           icon={<FolderOpenOutlined />}
           disabled={isDeploying || isDeleting}
           onClick={() => onOpenCoreFolder(instance)}
+        />
+      </Tooltip>
+      <Tooltip title="查看日志">
+        <Button
+          type="text"
+          icon={<FileTextOutlined />}
+          disabled={isDeploying || isDeleting}
+          onClick={() => onViewLogs(instance)}
         />
       </Tooltip>
       <Tooltip title="设置">
