@@ -31,6 +31,7 @@ type PendingUpgradeEdit = {
   instanceId: string;
   name: string;
   version: string;
+  host: string;
   port: number;
 };
 
@@ -197,7 +198,13 @@ export default function Dashboard() {
 
           setEditOpen(false);
           setEditingInstance(null);
-          await api.updateInstance(latestInstance.id, payload.name, payload.version, payload.port);
+          await api.updateInstance(
+            latestInstance.id,
+            payload.name,
+            payload.version,
+            payload.host,
+            payload.port
+          );
         },
         onSuccess: () => {
           closeUpgradeLockModal();
@@ -229,13 +236,14 @@ export default function Dashboard() {
   );
 
   const handleEdit = useCallback(
-    async (values: { name: string; version: string; port?: number }) => {
+    async (values: { name: string; version: string; host: string; port?: number }) => {
       if (!editingInstance) return;
 
       await runInstanceEdit({
         instanceId: editingInstance.id,
         name: values.name,
         version: values.version,
+        host: values.host,
         port: values.port ?? 0,
       });
     },

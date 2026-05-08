@@ -17,6 +17,12 @@ fn default_true() -> bool {
     true
 }
 
+pub const DEFAULT_INSTANCE_HOST: &str = "127.0.0.1";
+
+fn default_instance_host() -> String {
+    DEFAULT_INSTANCE_HOST.to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -321,6 +327,8 @@ where
 pub struct InstanceConfig {
     pub name: String,
     pub version: String,
+    #[serde(default = "default_instance_host")]
+    pub host: String,
     #[serde(default)]
     pub port: u16,
     #[serde(default)]

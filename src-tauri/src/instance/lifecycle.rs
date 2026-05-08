@@ -11,7 +11,7 @@ use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use super::crud::is_dashboard_enabled;
+use super::crud::{is_dashboard_enabled, normalize_instance_host};
 use super::deploy::{deploy_instance, emit_progress};
 use crate::component;
 use crate::config::{load_config, load_manifest};
@@ -171,8 +171,9 @@ pub async fn launch_instance(
             Vec::new()
         }
     };
+    let host = normalize_instance_host(&instance_config.host);
     let port = if instance_config.port > 0 {
-        check_port_available(instance_config.port)?;
+        check_port_available(&host, instance_config.port)?;
         instance_config.port
     } else {
         find_available_port()?
@@ -201,6 +202,7 @@ pub async fn launch_instance(
     cmd.arg(&main_py)
         .current_dir(&core_dir)
         .env("ASTRBOT_LAUNCHER", "1")
+        .env("DASHBOARD_HOST", &host)
         .env("DASHBOARD_PORT", port.to_string())
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONIOENCODING", "utf-8")

@@ -52,6 +52,7 @@ export interface InstanceConfig {
   id: string;
   name: string;
   version: string;
+  host: string;
   port: number;
   created_at: string;
 }
@@ -74,6 +75,7 @@ export interface InstanceStatus {
   version: string;
   dashboard_enabled: boolean;
   pid_tracker_not_available: boolean;
+  configured_host: string;
   configured_port: number;
 }
 
