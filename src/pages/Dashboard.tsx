@@ -421,6 +421,13 @@ export default function Dashboard() {
     setDeleteOpen(true);
   }, []);
 
+  const handleViewLogs = useCallback(
+    (instance: InstanceStatus) => {
+      navigate(`/logs?source=${instance.id}`);
+    },
+    [navigate]
+  );
+
   const columns = useMemo(
     () =>
       buildDashboardColumns({
@@ -439,6 +446,7 @@ export default function Dashboard() {
         onOpenCoreFolder: handleOpenCoreFolder,
         onEdit: openEditModal,
         onDelete: openDeleteModal,
+        onViewLogs: handleViewLogs,
       }),
     [
       deployProgress,
@@ -456,6 +464,7 @@ export default function Dashboard() {
       handleOpenCoreFolder,
       openEditModal,
       openDeleteModal,
+      handleViewLogs,
     ]
   );
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button, Card, Empty, Select, Flex, Layout } from 'antd';
 import { ClearOutlined } from '@ant-design/icons';
 import Ansi from 'ansi-to-react';
@@ -17,11 +18,14 @@ const levelOptions: { label: string; value: LogLevel }[] = [
 ];
 
 export default function Logs() {
+  const [searchParams] = useSearchParams();
   const instances = useAppStore((s) => s.instances);
   const getFilteredLogs = useLogStore((s) => s.getFilteredLogs);
   const clearLogs = useLogStore((s) => s.clearLogs);
 
-  const [source, setSource] = useState<string>('system');
+  const [source, setSource] = useState<string>(() => {
+    return searchParams.get('source') ?? 'system';
+  });
   const [level, setLevel] = useState<LogLevel>('info');
   const containerRef = useRef<HTMLElement>(null);
   const shouldAutoScroll = useRef(true);

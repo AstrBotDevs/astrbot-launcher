@@ -22,6 +22,7 @@ interface DashboardColumnsOptions {
   onOpenCoreFolder: (instance: InstanceStatus) => void;
   onEdit: (instance: InstanceStatus) => void;
   onDelete: (instance: InstanceStatus) => void;
+  onViewLogs: (instance: InstanceStatus) => void;
 }
 
 export function buildDashboardColumns({
@@ -40,6 +41,7 @@ export function buildDashboardColumns({
   onOpenCoreFolder,
   onEdit,
   onDelete,
+  onViewLogs,
 }: DashboardColumnsOptions): TableColumnsType<InstanceStatus> {
   return [
     {
@@ -89,7 +91,7 @@ export function buildDashboardColumns({
     {
       title: '操作',
       key: 'action',
-      width: 280,
+      width: 320,
       render: (_: unknown, record: InstanceStatus) => {
         const deploying = isInstanceDeploying(record.id, deployProgress);
 
@@ -107,6 +109,7 @@ export function buildDashboardColumns({
             onOpenCoreFolder={onOpenCoreFolder}
             onEdit={onEdit}
             onDelete={onDelete}
+            onViewLogs={onViewLogs}
           />
         );
       },
