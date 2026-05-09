@@ -34,6 +34,7 @@ use crate::process::STARTUP_TIMEOUT_SECS;
 const STARTUP_COMPLETION_MARKERS: &[&str] = &["AstrBot started.", "AstrBot 启动完成"];
 const DEFAULT_USERNAME_LABEL: &str = "Initial username";
 const DEFAULT_PASSWORD_LABEL: &str = "Initial password";
+const DEFAULT_EXPECTED_USERNAME: &str = "astrbot";
 const CREDENTIAL_VALUE_PREFIXES: &[&str] = &[":", "："];
 #[derive(Clone, Serialize)]
 struct DefaultCredentialsDetected {
@@ -80,18 +81,28 @@ fn extract_credential_value(line: &str, label: &str) -> Option<String> {
 }
 
 impl DefaultCredentialsDetector {
+    /// Process a single stdout line from the instance.
+    ///
+    /// Workaround: the username must match the expected default "astrbot"
+    /// before we capture the password. This prevents out-of-order field
+    /// detection from picking up unrelated credential-like output.
     fn push_line(
         &mut self,
         source: &str,
         display_name: &str,
         line: &str,
     ) -> Option<DefaultCredentialsDetected> {
-        if let Some(username) = extract_credential_value(line, DEFAULT_USERNAME_LABEL) {
-            self.username = Some(username);
+        // Only accept username if it matches the known default.
+        if self.username.is_none() {
+            self.username = extract_credential_value(line, DEFAULT_USERNAME_LABEL)
+                .filter(|username| username == DEFAULT_EXPECTED_USERNAME);
         }
 
-        if let Some(password) = extract_credential_value(&line, DEFAULT_PASSWORD_LABEL) {
-            self.password = Some(password);
+        // Only look for password after confirming username.
+        if self.username.is_some() {
+            if let Some(password) = extract_credential_value(line, DEFAULT_PASSWORD_LABEL) {
+                self.password = Some(password);
+            }
         }
 
         if self.username.is_none() || self.password.is_none() {
