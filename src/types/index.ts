@@ -182,6 +182,13 @@ export interface LogEntry {
   timestamp: string;
 }
 
+export interface DefaultCredentialsDetected {
+  source: string;
+  display_name: string;
+  username: string;
+  password: string;
+}
+
 // ========================================
 // UI Types
 // ========================================
