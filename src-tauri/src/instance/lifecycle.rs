@@ -94,11 +94,8 @@ impl DefaultCredentialsDetector {
     ) -> Option<DefaultCredentialsDetected> {
         // Only accept username if it matches the known default.
         if self.username.is_none() {
-            if let Some(username) = extract_credential_value(line, DEFAULT_USERNAME_LABEL) {
-                if username == DEFAULT_EXPECTED_USERNAME {
-                    self.username = Some(username);
-                }
-            }
+            self.username = extract_credential_value(line, DEFAULT_USERNAME_LABEL)
+                .filter(|username| username == DEFAULT_EXPECTED_USERNAME);
         }
 
         // Only look for password after confirming username.
