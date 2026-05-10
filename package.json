@@ -19,29 +19,29 @@
     "check:all": "pnpm run fe:lint && pnpm run cargo:check"
   },
   "dependencies": {
-    "@ant-design/icons": "^6.1.1",
-    "@tauri-apps/api": "^2.10.1",
+    "@ant-design/icons": "^6.2.2",
+    "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-autostart": "~2.5.1",
     "@tauri-apps/plugin-log": "~2.8.0",
-    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@tauri-apps/plugin-process": "~2.3.1",
     "@tauri-apps/plugin-updater": "~2.10.1",
     "@tauri-apps/plugin-window-state": "~2.4.1",
     "ansi-to-react": "^6.2.6",
-    "antd": "^6.3.6",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5",
+    "antd": "^6.3.7",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
     "react-markdown": "^10.1.0",
-    "react-router-dom": "^7.14.2",
-    "zustand": "^5.0.12"
+    "react-router-dom": "^7.15.0",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
-    "@tauri-apps/cli": "^2.10.1",
+    "@tauri-apps/cli": "^2.11.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.59.0",
-    "@typescript-eslint/parser": "^8.59.0",
+    "@typescript-eslint/eslint-plugin": "^8.59.2",
+    "@typescript-eslint/parser": "^8.59.2",
     "@vitejs/plugin-react": "^4.7.0",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "^10.1.8",
@@ -49,6 +49,6 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "prettier": "^3.8.3",
     "typescript": "~5.8.3",
-    "vite": "^7.3.2"
+    "vite": "^7.3.3"
   }
 }
