@@ -91,6 +91,22 @@ pub(crate) fn astrbot_source_archive_urls(config: &AppConfig, tag: &str) -> Vec<
     }
 }
 
+pub(crate) fn astrbot_dashboard_archive_urls(config: &AppConfig, tag: &str) -> Vec<String> {
+    let tag = tag.trim();
+    let registry_url =
+        format!("https://astrbot-registry.soulter.top/download/astrbot-dashboard/{tag}/dist.zip");
+    let github_url = format!(
+        "https://github.com/AstrBotDevs/AstrBot/releases/download/{tag}/AstrBot-{tag}-dashboard.zip"
+    );
+    let github_fallback_url = if mainland_acceleration(config) {
+        wrap_with_proxy(MAINLAND_ASTRBOT_DOWNLOAD_PROXY, &github_url)
+    } else {
+        wrap_with_proxy(&config.github_proxy, &github_url)
+    };
+
+    vec![registry_url, github_fallback_url]
+}
+
 pub(crate) fn build_uv_download_url(config: &AppConfig, archive_name: &str) -> String {
     if mainland_acceleration(config) {
         format!("{}{}", MAINLAND_UV_RELEASE_BASE, archive_name)
