@@ -429,6 +429,55 @@ fn clear_stale_preserve_dirs(instance_id: &str) {
     }
 }
 
+fn remove_dashboard_temp_dir(temp_dir: &Path) {
+    if let Err(e) = fs::remove_dir_all(temp_dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::warn!(
+                "Failed to remove stale dashboard temporary directory {:?}: {}",
+                temp_dir,
+                e
+            );
+        }
+    }
+}
+
+fn clear_stale_dashboard_temp_dirs(data_dir: &Path) {
+    let entries = match fs::read_dir(data_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Failed to read data directory {:?} before WebUI update: {}",
+                    data_dir,
+                    e
+                );
+            }
+            return;
+        }
+    };
+
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        if !file_name.starts_with(".dashboard-dist-") {
+            continue;
+        }
+
+        remove_dashboard_temp_dir(&entry.path());
+    }
+}
+
 fn clear_pycache_in_dirs(core_dir: &Path, venv_dir: &Path) -> Result<()> {
     if core_dir.exists() {
         super::cleanup::clear_pycache_recursive(core_dir)?;
@@ -496,6 +545,7 @@ async fn ensure_webui_for_version_with_progress(
     let core_dir = get_instance_core_dir(instance_id);
     let data_dir = core_dir.join("data");
     let dist_dir = data_dir.join("dist");
+    clear_stale_dashboard_temp_dirs(&data_dir);
     let version_file = webui_version_file(&dist_dir);
     if read_trimmed(&version_file)
         .as_deref()
@@ -520,6 +570,7 @@ async fn ensure_webui_for_version_with_progress(
     let zip_path = data_dir.join("dashboard.zip");
     let temp_dist_dir = data_dir.join(format!(".dashboard-dist-{}", uuid::Uuid::new_v4()));
     let mut last_error: Option<AppError> = None;
+    let mut install_result: Result<()> = Err(AppError::network("No usable WebUI download URL"));
 
     for (index, url) in urls.iter().enumerate() {
         if index > 0 {
@@ -548,7 +599,11 @@ async fn ensure_webui_for_version_with_progress(
 
         match extract_webui_archive(&zip_path, &temp_dist_dir, version) {
             Ok(()) => {
-                replace_webui_dist(&dist_dir, &temp_dist_dir)?;
+                let replace_result = replace_webui_dist(&dist_dir, &temp_dist_dir);
+                if let Err(error) = replace_result {
+                    last_error = Some(error);
+                    break;
+                }
                 let _ = fs::remove_file(&zip_path);
                 emit_progress(
                     app_handle,
@@ -557,7 +612,8 @@ async fn ensure_webui_for_version_with_progress(
                     "WebUI 替换完成",
                     progress.2,
                 );
-                return Ok(());
+                install_result = Ok(());
+                break;
             }
             Err(error) => {
                 log::warn!("WebUI archive from {} is not usable: {}", url, error);
@@ -568,6 +624,10 @@ async fn ensure_webui_for_version_with_progress(
 
     let _ = fs::remove_file(&zip_path);
     clear_dir_if_exists(&temp_dist_dir)?;
+
+    if install_result.is_ok() {
+        return install_result;
+    }
 
     Err(last_error.unwrap_or_else(|| AppError::network("No usable WebUI download URL")))
 }
@@ -601,13 +661,52 @@ fn extract_webui_archive(zip_path: &Path, temp_dist_dir: &Path, version: &str) -
 }
 
 fn replace_webui_dist(dist_dir: &Path, temp_dist_dir: &Path) -> Result<()> {
-    clear_dir_if_exists(dist_dir)?;
-    fs::rename(temp_dist_dir, dist_dir).map_err(|e| {
+    let parent = dist_dir.parent().ok_or_else(|| {
         AppError::io(format!(
-            "Failed to replace WebUI directory {:?} with {:?}: {}",
-            dist_dir, temp_dist_dir, e
+            "Failed to resolve parent directory for WebUI dist {:?}",
+            dist_dir
         ))
-    })
+    })?;
+    let backup_dist_dir = parent.join(format!(".dashboard-dist-backup-{}", uuid::Uuid::new_v4()));
+
+    let backup_created = if dist_dir.exists() {
+        fs::rename(dist_dir, &backup_dist_dir).map_err(|e| {
+            AppError::io(format!(
+                "Failed to move existing WebUI directory {:?} to backup {:?}: {}",
+                dist_dir, backup_dist_dir, e
+            ))
+        })?;
+        true
+    } else {
+        false
+    };
+
+    match fs::rename(temp_dist_dir, dist_dir) {
+        Ok(()) => {
+            if backup_created {
+                clear_dir_if_exists(&backup_dist_dir)?;
+            }
+            Ok(())
+        }
+        Err(replace_error) => {
+            if backup_created {
+                if dist_dir.exists() {
+                    let _ = clear_dir_if_exists(dist_dir);
+                }
+                if let Err(rollback_error) = fs::rename(&backup_dist_dir, dist_dir) {
+                    return Err(AppError::io(format!(
+                        "Failed to replace WebUI {:?} with {:?}: {}. Rollback from {:?} also failed: {}",
+                        dist_dir, temp_dist_dir, replace_error, backup_dist_dir, rollback_error
+                    )));
+                }
+            }
+
+            Err(AppError::io(format!(
+                "Failed to replace WebUI directory {:?} with {:?}: {}",
+                dist_dir, temp_dist_dir, replace_error
+            )))
+        }
+    }
 }
 
 fn clear_dir_if_exists(path: &Path) -> Result<()> {
