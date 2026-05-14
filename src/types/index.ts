@@ -149,6 +149,7 @@ export type DeployStep =
   | 'extract'
   | 'venv'
   | 'deps'
+  | 'webui'
   | 'restore'
   | 'start'
   | 'done'

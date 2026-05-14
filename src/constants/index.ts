@@ -8,6 +8,7 @@ export const DEPLOY_STEPS: StepItem[] = [
   { key: 'extract', title: '解压文件' },
   { key: 'venv', title: '创建虚拟环境' },
   { key: 'deps', title: '安装依赖' },
+  { key: 'webui', title: '检查 WebUI' },
   { key: 'start', title: '启动实例' },
   { key: 'done', title: '完成' },
 ];
@@ -18,6 +19,7 @@ export const UPGRADE_STEPS: StepItem[] = [
   { key: 'venv', title: '创建虚拟环境' },
   { key: 'deps', title: '安装依赖' },
   { key: 'restore', title: '还原数据' },
+  { key: 'webui', title: '检查 WebUI' },
   { key: 'done', title: '完成' },
 ];
 

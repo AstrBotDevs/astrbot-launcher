@@ -67,7 +67,6 @@ fn clean_credential_value(raw_value: &str) -> Option<String> {
     }
 
     let token = value
-        .trim_start()
         .split_whitespace()
         .next()?
         .trim_matches(|ch| matches!(ch, '"' | '\'' | '`' | ',' | '，' | '。' | ';' | '；'));

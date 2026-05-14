@@ -9,7 +9,9 @@ use super::types::DeployProgress;
 use crate::archive::extract_zip_flat;
 use crate::component;
 use crate::config::{load_config, load_manifest, with_config_mut};
+use crate::download::download_file;
 use crate::error::{AppError, Result};
+use crate::network_config;
 use crate::utils::paths::{get_instance_core_dir, get_instance_venv_dir, get_venv_python};
 use crate::utils::validation::validate_instance_id;
 
@@ -59,6 +61,23 @@ pub async fn deploy_instance_with_version(
     version: &str,
     app_handle: &AppHandle,
 ) -> Result<()> {
+    deploy_instance_with_version_impl(instance_id, version, app_handle, true).await
+}
+
+pub async fn deploy_instance_core_with_version(
+    instance_id: &str,
+    version: &str,
+    app_handle: &AppHandle,
+) -> Result<()> {
+    deploy_instance_with_version_impl(instance_id, version, app_handle, false).await
+}
+
+async fn deploy_instance_with_version_impl(
+    instance_id: &str,
+    version: &str,
+    app_handle: &AppHandle,
+    ensure_webui: bool,
+) -> Result<()> {
     validate_instance_id(instance_id)?;
     log::debug!(
         "Deploying instance {} with version {}",
@@ -107,6 +126,9 @@ pub async fn deploy_instance_with_version(
     emit_progress(app_handle, instance_id, "deps", "正在安装依赖...", 60);
     sync_dependencies(instance_id, &venv_python, &core_dir).await?;
     emit_progress(app_handle, instance_id, "deps", "依赖安装完成", 90);
+    if ensure_webui {
+        ensure_webui_for_version(instance_id, version, app_handle).await?;
+    }
 
     // Note: "done" is emitted by start_instance after the instance is truly running.
     Ok(())
@@ -173,7 +195,7 @@ pub async fn repair_instance(
         }
     }
 
-    deploy_instance_with_version(instance_id, &version, app_handle).await?;
+    deploy_instance_core_with_version(instance_id, &version, app_handle).await?;
 
     if let Some(preserved) = preserved {
         emit_progress(
@@ -188,6 +210,7 @@ pub async fn repair_instance(
         emit_progress(app_handle, instance_id, "restore", "保留数据恢复完成", 95);
     }
 
+    ensure_webui_for_version_after_restore(instance_id, &version, app_handle).await?;
     clear_pycache_in_dirs(&core_dir, &venv_dir)?;
     emit_progress(app_handle, instance_id, "done", "实例修复完成", 100);
 
@@ -406,6 +429,55 @@ fn clear_stale_preserve_dirs(instance_id: &str) {
     }
 }
 
+fn remove_dashboard_temp_dir(temp_dir: &Path) {
+    if let Err(e) = fs::remove_dir_all(temp_dir) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            log::warn!(
+                "Failed to remove stale dashboard temporary directory {:?}: {}",
+                temp_dir,
+                e
+            );
+        }
+    }
+}
+
+fn clear_stale_dashboard_temp_dirs(data_dir: &Path) {
+    let entries = match fs::read_dir(data_dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log::warn!(
+                    "Failed to read data directory {:?} before WebUI update: {}",
+                    data_dir,
+                    e
+                );
+            }
+            return;
+        }
+    };
+
+    for entry in entries {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let file_name = entry.file_name();
+        let Some(file_name) = file_name.to_str() else {
+            continue;
+        };
+        if !file_name.starts_with(".dashboard-dist-") {
+            continue;
+        }
+
+        remove_dashboard_temp_dir(&entry.path());
+    }
+}
+
 fn clear_pycache_in_dirs(core_dir: &Path, venv_dir: &Path) -> Result<()> {
     if core_dir.exists() {
         super::cleanup::clear_pycache_recursive(core_dir)?;
@@ -444,4 +516,218 @@ async fn sync_dependencies(instance_id: &str, venv_python: &Path, core_path: &Pa
     component::pip_install_requirements(venv_python, core_path, &config).await?;
 
     Ok(())
+}
+
+pub async fn ensure_webui_for_version(
+    instance_id: &str,
+    version: &str,
+    app_handle: &AppHandle,
+) -> Result<()> {
+    ensure_webui_for_version_with_progress(instance_id, version, app_handle, (91, 93, 94)).await
+}
+
+pub async fn ensure_webui_for_version_after_restore(
+    instance_id: &str,
+    version: &str,
+    app_handle: &AppHandle,
+) -> Result<()> {
+    ensure_webui_for_version_with_progress(instance_id, version, app_handle, (96, 97, 98)).await
+}
+
+async fn ensure_webui_for_version_with_progress(
+    instance_id: &str,
+    version: &str,
+    app_handle: &AppHandle,
+    progress: (u8, u8, u8),
+) -> Result<()> {
+    validate_instance_id(instance_id)?;
+
+    let core_dir = get_instance_core_dir(instance_id);
+    let data_dir = core_dir.join("data");
+    let dist_dir = data_dir.join("dist");
+    clear_stale_dashboard_temp_dirs(&data_dir);
+    let version_file = webui_version_file(&dist_dir);
+    if read_trimmed(&version_file)
+        .as_deref()
+        .is_some_and(|installed| versions_match(installed, version))
+    {
+        return Ok(());
+    }
+
+    emit_progress(
+        app_handle,
+        instance_id,
+        "webui",
+        "正在下载 WebUI...",
+        progress.0,
+    );
+
+    fs::create_dir_all(&data_dir)
+        .map_err(|e| AppError::io(format!("Failed to create data dir: {}", e)))?;
+    let config = load_config()?;
+    let client = network_config::build_http_client_from_config(config.as_ref())?;
+    let urls = network_config::astrbot_dashboard_archive_urls(config.as_ref(), version);
+    let zip_path = data_dir.join("dashboard.zip");
+    let temp_dist_dir = data_dir.join(format!(".dashboard-dist-{}", uuid::Uuid::new_v4()));
+    let mut last_error: Option<AppError> = None;
+    let mut install_result: Result<()> = Err(AppError::network("No usable WebUI download URL"));
+
+    for (index, url) in urls.iter().enumerate() {
+        if index > 0 {
+            log::warn!("Retrying WebUI download with fallback URL: {}", url);
+        }
+
+        let _ = fs::remove_file(&zip_path);
+        clear_dir_if_exists(&temp_dist_dir)?;
+
+        if let Err(error) = download_file(&client, url, &zip_path, None).await {
+            log::warn!("WebUI download failed for {}: {}", url, error);
+            last_error = Some(AppError::network(format!(
+                "Failed to download WebUI from {}: {}",
+                url, error
+            )));
+            continue;
+        }
+
+        emit_progress(
+            app_handle,
+            instance_id,
+            "webui",
+            "正在解压 WebUI...",
+            progress.1,
+        );
+
+        match extract_webui_archive(&zip_path, &temp_dist_dir, version) {
+            Ok(()) => {
+                let replace_result = replace_webui_dist(&dist_dir, &temp_dist_dir);
+                if let Err(error) = replace_result {
+                    last_error = Some(error);
+                    break;
+                }
+                let _ = fs::remove_file(&zip_path);
+                emit_progress(
+                    app_handle,
+                    instance_id,
+                    "webui",
+                    "WebUI 替换完成",
+                    progress.2,
+                );
+                install_result = Ok(());
+                break;
+            }
+            Err(error) => {
+                log::warn!("WebUI archive from {} is not usable: {}", url, error);
+                last_error = Some(error);
+            }
+        }
+    }
+
+    let _ = fs::remove_file(&zip_path);
+    clear_dir_if_exists(&temp_dist_dir)?;
+
+    if install_result.is_ok() {
+        return install_result;
+    }
+
+    Err(last_error.unwrap_or_else(|| AppError::network("No usable WebUI download URL")))
+}
+
+fn read_trimmed(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .map(|content| content.trim().to_string())
+        .filter(|content| !content.is_empty())
+}
+
+fn extract_webui_archive(zip_path: &Path, temp_dist_dir: &Path, version: &str) -> Result<()> {
+    extract_zip_flat(zip_path, temp_dist_dir)
+        .map_err(|e| AppError::io(format!("Failed to extract WebUI: {}", e)))?;
+
+    let installed_version = read_trimmed(&webui_version_file(temp_dist_dir)).ok_or_else(|| {
+        AppError::io(format!(
+            "Downloaded WebUI archive does not contain {:?}",
+            webui_version_file(temp_dist_dir)
+        ))
+    })?;
+
+    if !versions_match(&installed_version, version) {
+        return Err(AppError::io(format!(
+            "Downloaded WebUI version {} does not match target version {}",
+            installed_version, version
+        )));
+    }
+
+    Ok(())
+}
+
+fn replace_webui_dist(dist_dir: &Path, temp_dist_dir: &Path) -> Result<()> {
+    let parent = dist_dir.parent().ok_or_else(|| {
+        AppError::io(format!(
+            "Failed to resolve parent directory for WebUI dist {:?}",
+            dist_dir
+        ))
+    })?;
+    let backup_dist_dir = parent.join(format!(".dashboard-dist-backup-{}", uuid::Uuid::new_v4()));
+
+    let backup_created = if dist_dir.exists() {
+        fs::rename(dist_dir, &backup_dist_dir).map_err(|e| {
+            AppError::io(format!(
+                "Failed to move existing WebUI directory {:?} to backup {:?}: {}",
+                dist_dir, backup_dist_dir, e
+            ))
+        })?;
+        true
+    } else {
+        false
+    };
+
+    match fs::rename(temp_dist_dir, dist_dir) {
+        Ok(()) => {
+            if backup_created {
+                clear_dir_if_exists(&backup_dist_dir)?;
+            }
+            Ok(())
+        }
+        Err(replace_error) => {
+            if backup_created {
+                if dist_dir.exists() {
+                    let _ = clear_dir_if_exists(dist_dir);
+                }
+                if let Err(rollback_error) = fs::rename(&backup_dist_dir, dist_dir) {
+                    return Err(AppError::io(format!(
+                        "Failed to replace WebUI {:?} with {:?}: {}. Rollback from {:?} also failed: {}",
+                        dist_dir, temp_dist_dir, replace_error, backup_dist_dir, rollback_error
+                    )));
+                }
+            }
+
+            Err(AppError::io(format!(
+                "Failed to replace WebUI directory {:?} with {:?}: {}",
+                dist_dir, temp_dist_dir, replace_error
+            )))
+        }
+    }
+}
+
+fn clear_dir_if_exists(path: &Path) -> Result<()> {
+    match fs::remove_dir_all(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(AppError::io(format!(
+            "Failed to remove directory {:?}: {}",
+            path, e
+        ))),
+    }
+}
+
+fn webui_version_file(dist_dir: &Path) -> PathBuf {
+    dist_dir.join("assets").join("version")
+}
+
+fn versions_match(installed: &str, target: &str) -> bool {
+    installed.trim().eq_ignore_ascii_case(target.trim())
+        || installed
+            .trim()
+            .trim_start_matches(['v', 'V'])
+            .eq_ignore_ascii_case(target.trim().trim_start_matches(['v', 'V']))
 }

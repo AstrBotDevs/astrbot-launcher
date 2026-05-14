@@ -2,7 +2,9 @@
 
 use tauri::AppHandle;
 
-use super::deploy::{deploy_instance_with_version, emit_progress};
+use super::deploy::{
+    deploy_instance_core_with_version, emit_progress, ensure_webui_for_version_after_restore,
+};
 use super::types::{CmdConfig, InstanceStatus};
 use crate::backup::{create_backup, find_pending_auto_backup, restore_data_to_instance};
 use crate::config::{
@@ -250,7 +252,7 @@ pub async fn update_instance(
         }
 
         // Deploy(internally emits extract 10-30%, venv 40-50%, deps 60-90%)
-        deploy_instance_with_version(instance_id, new_version, app_handle).await?;
+        deploy_instance_core_with_version(instance_id, new_version, app_handle).await?;
 
         // Restore data from backup
         if let Some(ref bp) = backup_path {
@@ -263,6 +265,8 @@ pub async fn update_instance(
             })?;
             emit_progress(app_handle, instance_id, "restore", "数据还原完成", 95);
         }
+
+        ensure_webui_for_version_after_restore(instance_id, new_version, app_handle).await?;
 
         // Update config(version + optional name/port) after the operation completes successfully.
         // This prevents "config says new version" while the deployment hasn't fully finished.
