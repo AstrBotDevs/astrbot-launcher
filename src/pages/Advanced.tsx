@@ -16,7 +16,7 @@ import { TroubleshootingCard } from '../components/advanced/TroubleshootingCard'
 import { PageHeader } from '../components/PageHeader';
 import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
-import type { RepairPreserveScope } from '../types';
+import type { RepairPreserveScope, ThemePreference } from '../types';
 import {
   normalizeInputValue,
   validateGithubProxy,
@@ -65,6 +65,7 @@ export default function Advanced() {
   const loading = useAppStore((s) => s.loading);
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
+  const setThemePreference = useAppStore((s) => s.setThemePreference);
   const operations = useAppStore((s) => s.operations);
   const { runOperation } = useOperationRunner();
 
@@ -328,6 +329,18 @@ export default function Advanced() {
     });
   };
 
+  const handleThemePreferenceChange = async (value: ThemePreference) => {
+    await runOperation({
+      key: OPERATION_KEYS.advancedSaveThemePreference,
+      reloadAfter: false,
+      task: () => api.saveThemePreference(value),
+      onSuccess: () => {
+        setThemePreference(value);
+        message.success('设置已保存');
+      },
+    });
+  };
+
   const handleClearInstance = async ({
     selectedId,
     operationKey,
@@ -532,6 +545,7 @@ export default function Advanced() {
     operations[OPERATION_KEYS.advancedRebuildInstanceManifest] || false;
   const lockCheckExtensionWhitelistSaving =
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
+  const themePreferenceSaving = operations[OPERATION_KEYS.advancedSaveThemePreference] || false;
   const lockCheckModalLoading =
     lockCheckModal?.mode === 'checkFailed'
       ? operations[lockCheckModal.payload.operationKey] || false
@@ -604,6 +618,7 @@ export default function Advanced() {
         useUvSaving={useUvSaving}
         mainlandAccelerationSaving={mainlandAccelerationSaving}
         lockCheckExtensionWhitelistSaving={lockCheckExtensionWhitelistSaving}
+        themePreferenceSaving={themePreferenceSaving}
         onCloseToTrayChange={handleCloseToTrayChange}
         onCheckInstanceUpdateChange={handleCheckInstanceUpdateChange}
         onPersistInstanceStateChange={handlePersistInstanceStateChange}
@@ -611,6 +626,7 @@ export default function Advanced() {
         onUseUvForDepsChange={handleUseUvForDepsChange}
         onMainlandAccelerationChange={handleMainlandAccelerationChange}
         onLockCheckExtensionWhitelistChange={handleLockCheckExtensionWhitelistChange}
+        onThemePreferenceChange={handleThemePreferenceChange}
       />
 
       <ProxySettingsCard

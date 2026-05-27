@@ -121,6 +121,7 @@ pub fn run() {
             commands::save_persist_instance_state,
             commands::save_ignore_external_path,
             commands::save_lock_check_extension_whitelist,
+            commands::save_theme_preference,
             commands::save_mainland_acceleration,
             commands::is_macos,
             // Components

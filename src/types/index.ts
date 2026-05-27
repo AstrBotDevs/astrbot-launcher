@@ -11,6 +11,9 @@ export interface AppError {
 // App Configuration Types
 // ========================================
 
+export type ThemePreference = 'system' | 'light' | 'dark';
+export type ResolvedTheme = 'light' | 'dark';
+
 export interface AppConfig {
   mainland_acceleration: boolean;
   github_proxy: string;
@@ -27,6 +30,7 @@ export interface AppConfig {
   persist_instance_state: boolean;
   ignore_external_path: boolean;
   lock_check_extension_whitelist: boolean;
+  theme_preference: ThemePreference;
 }
 
 // ========================================

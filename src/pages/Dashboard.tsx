@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Table, Modal, Form, Input, InputNumber, Select, Alert } from 'antd';
+import { Button, Table, Modal, Form, Input, InputNumber, Select, Alert, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
@@ -567,7 +567,9 @@ export default function Dashboard() {
         content={
           <>
             <p>确定要删除此实例吗？</p>
-            {instanceToDelete && <p style={{ color: '#666' }}>实例名称: {instanceToDelete.name}</p>}
+            {instanceToDelete && (
+              <Typography.Text type="secondary">实例名称: {instanceToDelete.name}</Typography.Text>
+            )}
           </>
         }
         loading={operations[OPERATION_KEYS.deleteInstance]}

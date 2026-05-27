@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Button, Card, Empty, Select, Flex, Layout } from 'antd';
+import { Button, Card, Empty, Select, Flex, Layout, Typography } from 'antd';
 import { ClearOutlined } from '@ant-design/icons';
 import Ansi from 'ansi-to-react';
 import { PageHeader } from '../components/PageHeader';
@@ -62,14 +62,14 @@ export default function Logs() {
       <PageHeader title="日志" />
 
       <Flex align="center" gap={8} style={{ marginBottom: 12 }}>
-        <span style={{ color: '#666' }}>来源</span>
+        <Typography.Text type="secondary">来源</Typography.Text>
         <Select
           style={{ width: 200 }}
           value={effectiveSource}
           options={sourceOptions}
           onChange={setSource}
         />
-        <span style={{ color: '#666' }}>级别</span>
+        <Typography.Text type="secondary">级别</Typography.Text>
         <Select style={{ width: 120 }} value={level} options={levelOptions} onChange={setLevel} />
         <Flex flex={1} />
         <Button

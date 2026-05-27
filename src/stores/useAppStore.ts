@@ -12,6 +12,7 @@ import type {
   ComponentStatus,
   DownloadProgress,
   LogEntry,
+  ThemePreference,
 } from '../types';
 import { handleApiError } from '../utils';
 import { MODAL_CLOSE_DELAY_MS } from '../constants';
@@ -47,6 +48,7 @@ interface AppState {
   setDeployProgress: (progress: DeployProgress | null) => void;
   closeDeploy: () => void;
   clearDownloadProgress: (id: string) => void;
+  setThemePreference: (themePreference: ThemePreference) => void;
 }
 
 const KNOWN_COMPONENTS: ReadonlyArray<
@@ -257,6 +259,21 @@ export const useAppStore = create<AppState>((set, get) => {
         const next = { ...state.downloadProgress };
         delete next[id];
         return { downloadProgress: next };
+      });
+    },
+
+    setThemePreference: (themePreference: ThemePreference) => {
+      set((state) => {
+        if (!state.config) {
+          return state;
+        }
+
+        return {
+          config: {
+            ...state.config,
+            theme_preference: themePreference,
+          },
+        };
       });
     },
   };
