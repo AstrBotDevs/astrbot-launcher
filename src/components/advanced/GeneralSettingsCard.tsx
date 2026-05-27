@@ -1,5 +1,5 @@
 import { Card, Form, Select, Switch } from 'antd';
-import type { AppConfig } from '../../types';
+import type { AppConfig, ThemePreference } from '../../types';
 
 interface GeneralSettingsCardProps {
   config: AppConfig | null;
@@ -8,6 +8,7 @@ interface GeneralSettingsCardProps {
   useUvSaving: boolean;
   mainlandAccelerationSaving: boolean;
   lockCheckExtensionWhitelistSaving: boolean;
+  themePreferenceSaving: boolean;
   onCloseToTrayChange: (value: string) => void;
   onCheckInstanceUpdateChange: (checked: boolean) => void;
   onPersistInstanceStateChange: (checked: boolean) => void;
@@ -15,6 +16,7 @@ interface GeneralSettingsCardProps {
   onUseUvForDepsChange: (checked: boolean) => void;
   onMainlandAccelerationChange: (checked: boolean) => void;
   onLockCheckExtensionWhitelistChange: (checked: boolean) => void;
+  onThemePreferenceChange: (value: ThemePreference) => void;
 }
 
 export function GeneralSettingsCard({
@@ -24,6 +26,7 @@ export function GeneralSettingsCard({
   useUvSaving,
   mainlandAccelerationSaving,
   lockCheckExtensionWhitelistSaving,
+  themePreferenceSaving,
   onCloseToTrayChange,
   onCheckInstanceUpdateChange,
   onPersistInstanceStateChange,
@@ -31,10 +34,25 @@ export function GeneralSettingsCard({
   onUseUvForDepsChange,
   onMainlandAccelerationChange,
   onLockCheckExtensionWhitelistChange,
+  onThemePreferenceChange,
 }: GeneralSettingsCardProps) {
   return (
     <Card title="通用" size="small" style={{ marginBottom: 16 }}>
       <Form layout="vertical">
+        <Form.Item label="外观主题" extra="选择界面使用浅色、深色，或跟随系统设置">
+          <Select<ThemePreference>
+            value={config?.theme_preference ?? 'system'}
+            onChange={onThemePreferenceChange}
+            loading={themePreferenceSaving}
+            disabled={themePreferenceSaving}
+            options={[
+              { label: '跟随系统', value: 'system' },
+              { label: '浅色', value: 'light' },
+              { label: '深色', value: 'dark' },
+            ]}
+            style={{ width: 200 }}
+          />
+        </Form.Item>
         <Form.Item label="关闭窗口时" extra="选择关闭窗口按钮的行为">
           <Select
             value={config?.close_to_tray ? 'tray' : 'exit'}

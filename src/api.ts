@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { GitHubRelease, AppSnapshot } from './types';
+import type { GitHubRelease, AppSnapshot, ThemePreference } from './types';
 import type { RepairPreserveScope } from './types';
 
 type LockCheckRequest =
@@ -46,6 +46,8 @@ export const api = {
     invoke<void>('save_mainland_acceleration', { mainlandAcceleration }),
   saveLockCheckExtensionWhitelist: (lockCheckExtensionWhitelist: boolean) =>
     invoke<void>('save_lock_check_extension_whitelist', { lockCheckExtensionWhitelist }),
+  saveThemePreference: (themePreference: ThemePreference) =>
+    invoke<void>('save_theme_preference', { themePreference }),
 
   // ========================================
   // Components

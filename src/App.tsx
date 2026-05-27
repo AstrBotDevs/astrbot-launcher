@@ -25,6 +25,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { TitleBar } from './components/TitleBar';
 import { AntdStaticProvider, message } from './antdStatic';
 import { useAppStore, useUpdateStore, initEventListeners, cleanupEventListeners } from './stores';
+import { useResolvedTheme } from './hooks';
 import type { DefaultCredentialsDetected } from './types';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Versions = lazy(() => import('./pages/Versions'));
@@ -109,6 +110,7 @@ function DefaultCredentialsListener() {
 function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { token } = theme.useToken();
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const hasUpdate = useUpdateStore((s) => s.hasUpdate);
 
@@ -158,14 +160,22 @@ function AppLayout() {
 
   return (
     <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-      <Layout style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+      <Layout
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'hidden',
+          background: token.colorBgLayout,
+        }}
+      >
         <Sider
           width={180}
-          theme="light"
           style={{
             overflow: 'auto',
             height: '100%',
             minHeight: 0,
+            background: token.colorBgContainer,
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
           <Menu
@@ -173,11 +183,19 @@ function AppLayout() {
             selectedKeys={[location.pathname]}
             items={menuItems}
             onClick={({ key }) => navigate(key)}
-            style={{ borderRight: 0 }}
+            style={{ borderRight: 0, background: token.colorBgContainer }}
           />
         </Sider>
-        <Layout style={{ minHeight: 0 }}>
-          <Content style={{ padding: 24, overflow: 'auto', height: '100%', minHeight: 0 }}>
+        <Layout style={{ minHeight: 0, background: token.colorBgLayout }}>
+          <Content
+            style={{
+              padding: 24,
+              overflow: 'auto',
+              height: '100%',
+              minHeight: 0,
+              background: token.colorBgLayout,
+            }}
+          >
             <ErrorBoundary>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
@@ -196,6 +214,8 @@ function AppLayout() {
 }
 
 function App({ isMacOS }: { isMacOS: boolean }) {
+  const resolvedTheme = useResolvedTheme();
+
   useEffect(() => {
     void initEventListeners();
     void useAppStore.getState().reloadSnapshot();
@@ -211,6 +231,11 @@ function App({ isMacOS }: { isMacOS: boolean }) {
     };
   }, []);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = resolvedTheme;
+    document.documentElement.style.colorScheme = resolvedTheme;
+  }, [resolvedTheme]);
+
   // On non-macOS, a custom titlebar occupies the top TITLEBAR_HEIGHT px.
   // All Ant Design overlays that render via portals (Drawer, message, notification)
   // are offset below the titlebar so interactive elements are never hidden behind it.
@@ -222,7 +247,7 @@ function App({ isMacOS }: { isMacOS: boolean }) {
     <ConfigProvider
       locale={zhCN}
       theme={{
-        algorithm: theme.defaultAlgorithm,
+        algorithm: resolvedTheme === 'dark' ? theme.darkAlgorithm : theme.defaultAlgorithm,
         token: {
           borderRadius: 8,
         },

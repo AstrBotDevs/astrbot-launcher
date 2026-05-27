@@ -423,9 +423,7 @@ export default function Versions() {
         content={
           <>
             <p>确定删除此版本？</p>
-            {versionToUninstall && (
-              <p style={{ color: '#666' }}>版本: {versionToUninstall.version}</p>
-            )}
+            {versionToUninstall && <Text type="secondary">版本: {versionToUninstall.version}</Text>}
           </>
         }
         loading={

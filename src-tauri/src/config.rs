@@ -23,6 +23,15 @@ fn default_instance_host() -> String {
     DEFAULT_INSTANCE_HOST.to_string()
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
@@ -55,6 +64,8 @@ pub struct AppConfig {
     pub ignore_external_path: bool,
     #[serde(default)]
     pub lock_check_extension_whitelist: bool,
+    #[serde(default)]
+    pub theme_preference: ThemePreference,
 }
 
 impl Default for AppConfig {
@@ -75,6 +86,7 @@ impl Default for AppConfig {
             persist_instance_state: false,
             ignore_external_path: false,
             lock_check_extension_whitelist: false,
+            theme_preference: ThemePreference::System,
         }
     }
 }

@@ -10,7 +10,7 @@ use crate::component;
 use crate::component::ComponentsSnapshot;
 use crate::config::{
     load_config, load_manifest, reload_config, reload_manifest, with_config_mut, AppConfig,
-    AppManifest, BackupInfo, InstalledVersion,
+    AppManifest, BackupInfo, InstalledVersion, ThemePreference,
 };
 use crate::download;
 use crate::error::{AppError, Result};
@@ -285,6 +285,11 @@ define_save_config_command!(
     save_lock_check_extension_whitelist,
     lock_check_extension_whitelist: bool,
     lock_check_extension_whitelist
+);
+define_save_config_command!(
+    save_theme_preference,
+    theme_preference: ThemePreference,
+    theme_preference
 );
 
 // === Components ===

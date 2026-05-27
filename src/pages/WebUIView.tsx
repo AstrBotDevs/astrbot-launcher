@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Spin } from 'antd';
+import { Button, Spin, Typography, theme } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { handleApiError } from '../utils';
@@ -8,6 +8,7 @@ import { handleApiError } from '../utils';
 export default function WebUIView() {
   const { instanceId } = useParams<{ instanceId: string }>();
   const navigate = useNavigate();
+  const { token } = theme.useToken();
   const [port, setPort] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -46,7 +47,12 @@ export default function WebUIView() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
           返回
         </Button>
-        <div style={{ textAlign: 'center', marginTop: 48, color: '#999' }}>无法获取实例端口</div>
+        <Typography.Text
+          type="secondary"
+          style={{ display: 'block', textAlign: 'center', marginTop: 48 }}
+        >
+          无法获取实例端口
+        </Typography.Text>
       </div>
     );
   }
@@ -59,8 +65,8 @@ export default function WebUIView() {
           display: 'flex',
           alignItems: 'center',
           padding: '0 12px',
-          borderBottom: '1px solid #f0f0f0',
-          background: '#fff',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          background: token.colorBgContainer,
           gap: 8,
           flexShrink: 0,
         }}
@@ -68,7 +74,9 @@ export default function WebUIView() {
         <Button type="text" size="small" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
           返回
         </Button>
-        <span style={{ color: '#999', fontSize: 12 }}>http://localhost:{port}</span>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          http://localhost:{port}
+        </Typography.Text>
       </div>
       <iframe
         src={`http://localhost:${port}`}

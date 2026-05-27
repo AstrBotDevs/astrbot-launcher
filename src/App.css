@@ -1,17 +1,40 @@
 :root {
+  --app-bg: #f5f5f5;
+  --app-text: #333;
+  --app-text-secondary: #666;
+  --app-titlebar-bg: #fff;
+  --app-titlebar-shadow: rgba(0, 0, 0, 0.06);
+  --app-titlebar-btn-hover-bg: rgba(0, 0, 0, 0.06);
+  --app-titlebar-btn-active-bg: rgba(0, 0, 0, 0.1);
+  --app-scrollbar-thumb: rgba(0, 0, 0, 0.15);
+  --app-scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: #333;
-  background-color: #f5f5f5;
+  color: var(--app-text);
+  background-color: var(--app-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='dark'] {
+  --app-bg: #000;
+  --app-text: rgba(255, 255, 255, 0.85);
+  --app-text-secondary: rgba(255, 255, 255, 0.65);
+  --app-titlebar-bg: #141414;
+  --app-titlebar-shadow: rgba(255, 255, 255, 0.08);
+  --app-titlebar-btn-hover-bg: rgba(255, 255, 255, 0.08);
+  --app-titlebar-btn-active-bg: rgba(255, 255, 255, 0.14);
+  --app-scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --app-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
 
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
+  color: var(--app-text);
+  background: var(--app-bg);
 }
 
 * {
@@ -29,12 +52,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--app-scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--app-scrollbar-thumb-hover);
 }
 
 /* Title bar */
@@ -43,8 +66,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  background: var(--app-titlebar-bg);
+  box-shadow: 0 1px 3px var(--app-titlebar-shadow);
   user-select: none;
   flex-shrink: 0;
   position: relative;
@@ -55,7 +78,7 @@ body {
   padding-left: 16px;
   font-weight: 600;
   font-size: 13px;
-  color: #555;
+  color: var(--app-text);
   letter-spacing: 0.3px;
 }
 
@@ -73,18 +96,18 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #666;
+  color: var(--app-text-secondary);
   transition: background 0.15s, color 0.15s;
   outline: none;
 }
 
 .titlebar-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: #333;
+  background: var(--app-titlebar-btn-hover-bg);
+  color: var(--app-text);
 }
 
 .titlebar-btn:active {
-  background: rgba(0, 0, 0, 0.1);
+  background: var(--app-titlebar-btn-active-bg);
 }
 
 .titlebar-btn-close:hover {

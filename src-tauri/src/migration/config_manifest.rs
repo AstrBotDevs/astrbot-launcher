@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     has_config_record, has_manifest_record, with_config_mut, with_manifest_mut, AppConfig,
-    AppManifest, InstalledVersion, InstanceConfig,
+    AppManifest, InstalledVersion, InstanceConfig, ThemePreference,
 };
 use crate::utils::paths::{config_path, manifest_path};
 
@@ -56,6 +56,8 @@ struct LegacyAppConfig {
     ignore_external_path: bool,
     #[serde(default)]
     tracked_instances_snapshot: Vec<String>,
+    #[serde(default)]
+    theme_preference: ThemePreference,
 }
 
 impl LegacyAppConfig {
@@ -76,6 +78,7 @@ impl LegacyAppConfig {
             persist_instance_state: self.persist_instance_state,
             ignore_external_path: self.ignore_external_path,
             lock_check_extension_whitelist: false,
+            theme_preference: self.theme_preference,
         }
     }
 
