@@ -87,7 +87,7 @@ export default function WebUIView() {
           width: '100%',
         }}
         title="AstrBot WebUI"
-        allow="clipboard-write"
+        allow="clipboard-write; microphone; autoplay"
       />
     </div>
   );
