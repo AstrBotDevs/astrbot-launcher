@@ -56,6 +56,8 @@ pub struct AppConfig {
     pub use_uv_for_deps: bool,
     #[serde(default = "default_true")]
     pub close_to_tray: bool,
+    #[serde(default)]
+    pub autostart_minimize_to_tray: bool,
     #[serde(default = "default_true")]
     pub check_instance_update: bool,
     #[serde(default)]
@@ -82,6 +84,7 @@ impl Default for AppConfig {
             npm_registry: String::new(),
             use_uv_for_deps: false,
             close_to_tray: true,
+            autostart_minimize_to_tray: false,
             check_instance_update: true,
             persist_instance_state: false,
             ignore_external_path: false,

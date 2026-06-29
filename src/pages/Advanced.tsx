@@ -206,6 +206,14 @@ export default function Advanced() {
     });
   };
 
+  const handleAutostartMinimizeToTrayChange = async (checked: boolean) => {
+    await handleSaveSetting({
+      key: OPERATION_KEYS.advancedSaveAutostartMinimizeToTray,
+      save: () => api.saveAutostartMinimizeToTray(checked),
+      successMessage: '设置已保存',
+    });
+  };
+
   const handleSaveSetting = async ({
     key,
     save,
@@ -546,6 +554,8 @@ export default function Advanced() {
   const lockCheckExtensionWhitelistSaving =
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
   const themePreferenceSaving = operations[OPERATION_KEYS.advancedSaveThemePreference] || false;
+  const autostartMinimizeToTraySaving =
+    operations[OPERATION_KEYS.advancedSaveAutostartMinimizeToTray] || false;
   const lockCheckModalLoading =
     lockCheckModal?.mode === 'checkFailed'
       ? operations[lockCheckModal.payload.operationKey] || false
@@ -619,10 +629,12 @@ export default function Advanced() {
         mainlandAccelerationSaving={mainlandAccelerationSaving}
         lockCheckExtensionWhitelistSaving={lockCheckExtensionWhitelistSaving}
         themePreferenceSaving={themePreferenceSaving}
+        autostartMinimizeToTraySaving={autostartMinimizeToTraySaving}
         onCloseToTrayChange={handleCloseToTrayChange}
         onCheckInstanceUpdateChange={handleCheckInstanceUpdateChange}
         onPersistInstanceStateChange={handlePersistInstanceStateChange}
         onAutostartChange={handleAutostartChange}
+        onAutostartMinimizeToTrayChange={handleAutostartMinimizeToTrayChange}
         onUseUvForDepsChange={handleUseUvForDepsChange}
         onMainlandAccelerationChange={handleMainlandAccelerationChange}
         onLockCheckExtensionWhitelistChange={handleLockCheckExtensionWhitelistChange}

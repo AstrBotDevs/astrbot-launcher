@@ -48,6 +48,8 @@ struct LegacyAppConfig {
     use_uv_for_deps: bool,
     #[serde(default = "default_true")]
     close_to_tray: bool,
+    #[serde(default)]
+    autostart_minimize_to_tray: bool,
     #[serde(default = "default_true")]
     check_instance_update: bool,
     #[serde(default)]
@@ -74,6 +76,7 @@ impl LegacyAppConfig {
             npm_registry: self.npm_registry,
             use_uv_for_deps: self.use_uv_for_deps,
             close_to_tray: self.close_to_tray,
+            autostart_minimize_to_tray: self.autostart_minimize_to_tray,
             check_instance_update: self.check_instance_update,
             persist_instance_state: self.persist_instance_state,
             ignore_external_path: self.ignore_external_path,

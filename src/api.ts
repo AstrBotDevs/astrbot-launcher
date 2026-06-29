@@ -35,6 +35,8 @@ export const api = {
   saveUseUvForDeps: (useUvForDeps: boolean) =>
     invoke<void>('save_use_uv_for_deps', { useUvForDeps }),
   saveCloseToTray: (closeToTray: boolean) => invoke<void>('save_close_to_tray', { closeToTray }),
+  saveAutostartMinimizeToTray: (autostartMinimizeToTray: boolean) =>
+    invoke<void>('save_autostart_minimize_to_tray', { autostartMinimizeToTray }),
   compareVersions: (a: string, b: string) => invoke<number>('compare_versions', { a, b }),
   saveCheckInstanceUpdate: (checkInstanceUpdate: boolean) =>
     invoke<void>('save_check_instance_update', { checkInstanceUpdate }),

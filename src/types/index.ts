@@ -26,6 +26,7 @@ export interface AppConfig {
   npm_registry: string;
   use_uv_for_deps: boolean;
   close_to_tray: boolean;
+  autostart_minimize_to_tray: boolean;
   check_instance_update: boolean;
   persist_instance_state: boolean;
   ignore_external_path: boolean;
