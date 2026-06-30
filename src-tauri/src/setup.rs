@@ -26,7 +26,10 @@ pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error:
     }
 
     if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.set_min_size(Some(tauri::LogicalSize::new(1000.0, 680.0)));
+        let _ = main_window.set_min_size(Some(tauri::LogicalSize::new(
+            crate::MIN_WINDOW_WIDTH as f64,
+            crate::MIN_WINDOW_HEIGHT as f64,
+        )));
     }
 
     let state: tauri::State<'_, AppState> = app.state();

@@ -29,6 +29,51 @@ pub use error::{AppError, ErrorKind, Result};
 use process::ProcessManager;
 use utils::log_bus::LogEntry;
 
+pub(crate) const MIN_WINDOW_WIDTH: u32 = 1000;
+pub(crate) const MIN_WINDOW_HEIGHT: u32 = 680;
+
+fn validate_window_state() {
+    let state_path = match dirs::config_dir() {
+        Some(d) => d
+            .join("com.github.raven95676.astrbot-launcher")
+            .join(".window-state.json"),
+        None => return,
+    };
+
+    let content = match std::fs::read_to_string(&state_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut value: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let mut modified = false;
+
+    if let Some(main) = value.get_mut("main") {
+        if let Some(width) = main.get("width").and_then(|v| v.as_u64()) {
+            if width < MIN_WINDOW_WIDTH as u64 {
+                main["width"] = serde_json::json!(MIN_WINDOW_WIDTH);
+                modified = true;
+            }
+        }
+        if let Some(height) = main.get("height").and_then(|v| v.as_u64()) {
+            if height < MIN_WINDOW_HEIGHT as u64 {
+                main["height"] = serde_json::json!(MIN_WINDOW_HEIGHT);
+                modified = true;
+            }
+        }
+    }
+
+    if modified {
+        if let Ok(json) = serde_json::to_string_pretty(&value) {
+            let _ = std::fs::write(&state_path, json);
+        }
+    }
+}
+
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -41,6 +86,7 @@ pub fn run() {
     utils::paths::ensure_data_dirs().expect("Failed to create data directories");
     migration::run_startup_migrations();
     github::init_releases_cache();
+    validate_window_state();
 
     let dispatch_sender = utils::log_bus::init_log_channel();
     let dispatch = tauri_plugin_log::fern::Dispatch::new().chain(
