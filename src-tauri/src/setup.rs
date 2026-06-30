@@ -9,6 +9,8 @@ use crate::tray;
 use crate::utils::log_bus as log_channel;
 
 pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    hide_window_for_autostart(app);
+
     #[cfg(target_os = "linux")]
     if let Some(main_webview) = app.get_webview_window("main") {
         let _ = main_webview.with_webview(|webview| {
@@ -32,6 +34,24 @@ pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error:
     restore_instances(app);
 
     Ok(())
+}
+
+fn hide_window_for_autostart(app: &tauri::App) {
+    let launched_from_autostart = std::env::args_os().any(|arg| arg == "--autostart");
+    if !launched_from_autostart {
+        return;
+    }
+
+    if !load_config()
+        .map(|config| config.autostart_minimize_to_tray)
+        .unwrap_or(false)
+    {
+        return;
+    }
+
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.hide();
+    }
 }
 
 fn spawn_event_forwarder(app: &tauri::App) {

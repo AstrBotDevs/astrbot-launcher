@@ -63,7 +63,11 @@ pub fn run() {
             let _ = window.show();
             let _ = window.set_focus();
         }))
-        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg("--autostart")
+                .build(),
+        )
         .plugin(tauri_plugin_window_state::Builder::new().build())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -116,6 +120,7 @@ pub fn run() {
             commands::save_npm_registry,
             commands::save_use_uv_for_deps,
             commands::save_close_to_tray,
+            commands::save_autostart_minimize_to_tray,
             commands::compare_versions,
             commands::save_check_instance_update,
             commands::save_persist_instance_state,

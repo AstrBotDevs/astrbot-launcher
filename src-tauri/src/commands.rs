@@ -226,6 +226,11 @@ pub async fn save_pypi_mirror(pypi_mirror: String, state: State<'_, AppState>) -
 }
 
 define_save_config_command!(save_close_to_tray, close_to_tray: bool, close_to_tray);
+define_save_config_command!(
+    save_autostart_minimize_to_tray,
+    autostart_minimize_to_tray: bool,
+    autostart_minimize_to_tray
+);
 define_save_config_command!(save_nodejs_mirror, nodejs_mirror: String, nodejs_mirror);
 define_save_config_command!(save_npm_registry, npm_registry: String, npm_registry);
 
