@@ -209,7 +209,12 @@ export default function Advanced() {
   const handleAutostartMinimizeToTrayChange = async (checked: boolean) => {
     await handleSaveSetting({
       key: OPERATION_KEYS.advancedSaveAutostartMinimizeToTray,
-      save: () => api.saveAutostartMinimizeToTray(checked),
+      save: async () => {
+        await api.saveAutostartMinimizeToTray(checked);
+        if (checked && autostart) {
+          await enable(); // re-register to ensure --autostart arg is present
+        }
+      },
       successMessage: '设置已保存',
     });
   };
