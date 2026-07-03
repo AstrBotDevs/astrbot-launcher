@@ -100,6 +100,18 @@ pub async fn install_uv(client: &Client, app_handle: Option<&AppHandle>) -> Resu
     Ok(format!("已安装 uv: {}", version))
 }
 
+/// Uninstall uv.
+pub fn uninstall_uv() -> Result<String> {
+    let dir = get_component_dir("uv");
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| AppError::io(format!("Failed to remove uv: {}", e)))?;
+        Ok("已卸载 uv".to_string())
+    } else {
+        Ok("uv 组件未安装".to_string())
+    }
+}
+
 pub async fn reinstall_uv(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
     let version = do_install_uv(client, app_handle).await?;
     Ok(format!("已重新安装 uv: {}", version))

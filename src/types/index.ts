@@ -150,15 +150,7 @@ export interface DownloadProgress {
 }
 
 export type DeployStep =
-  | 'backup'
-  | 'extract'
-  | 'venv'
-  | 'deps'
-  | 'webui'
-  | 'restore'
-  | 'start'
-  | 'done'
-  | 'error';
+  'backup' | 'extract' | 'venv' | 'deps' | 'webui' | 'restore' | 'start' | 'done' | 'error';
 
 export interface DeployProgress {
   instance_id: string;
@@ -170,10 +162,7 @@ export interface DeployProgress {
 export type DeployType = 'start' | 'upgrade' | 'downgrade' | null;
 
 export type RepairPreserveScope =
-  | 'data_directory'
-  | 'config_and_data_files'
-  | 'core_config_and_data_files'
-  | 'database_only';
+  'data_directory' | 'config_and_data_files' | 'core_config_and_data_files' | 'database_only';
 
 export interface DeployState {
   instanceName: string;

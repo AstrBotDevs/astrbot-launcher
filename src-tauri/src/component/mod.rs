@@ -63,6 +63,23 @@ pub async fn install_component(
     result
 }
 
+/// Uninstall a component by id, dispatching to the appropriate sub-module.
+pub fn uninstall_component(id: ComponentId) -> Result<String> {
+    log::info!("Uninstalling component {:?}", id);
+    let result = match id {
+        ComponentId::Python => python::uninstall_component(),
+        ComponentId::Nodejs => nodejs::uninstall_nodejs(),
+        ComponentId::UV => uv::uninstall_uv(),
+    };
+
+    match &result {
+        Ok(msg) => log::info!("Component {:?} uninstalled: {}", id, msg),
+        Err(e) => log::error!("Failed to uninstall component {:?}: {}", id, e),
+    }
+
+    result
+}
+
 /// Reinstall a component by id, dispatching to the appropriate sub-module.
 pub async fn reinstall_component(
     client: &Client,
