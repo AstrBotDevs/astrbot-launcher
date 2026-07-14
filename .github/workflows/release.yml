@@ -65,10 +65,10 @@ jobs:
             const winX64 = `AstrBot.Launcher_${version}_x64-setup.exe`;
             const winArm64 = `AstrBot.Launcher_${version}_arm64-setup.exe`;
             const linuxX64Rpm = `AstrBot.Launcher-${version}-1.x86_64.rpm`;
-            const linuxX64Deb = `astrbot-launcher_${version}_amd64.deb`;
+            const linuxX64Deb = `AstrBot.Launcher_${version}_amd64.deb`;
             const linuxX64AppImage = `AstrBot.Launcher_${version}_amd64.AppImage`;
             const linuxArm64Rpm = `AstrBot.Launcher-${version}-1.aarch64.rpm`;
-            const linuxArm64Deb = `astrbot-launcher_${version}_arm64.deb`;
+            const linuxArm64Deb = `AstrBot.Launcher_${version}_arm64.deb`;
             const linuxArm64AppImage = `AstrBot.Launcher_${version}_aarch64.AppImage`;
             const macX64 = `AstrBot.Launcher_${version}_x64.dmg`;
             const macArm64 = `AstrBot.Launcher_${version}_aarch64.dmg`;
