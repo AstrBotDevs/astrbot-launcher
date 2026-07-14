@@ -57,6 +57,8 @@ export const api = {
   installComponent: (componentId: string) => invoke<string>('install_component', { componentId }),
   reinstallComponent: (componentId: string) =>
     invoke<string>('reinstall_component', { componentId }),
+  uninstallComponent: (componentId: string) =>
+    invoke<string>('uninstall_component', { componentId }),
 
   // ========================================
   // GitHub

@@ -178,6 +178,7 @@ pub fn run() {
             // Components
             commands::install_component,
             commands::reinstall_component,
+            commands::uninstall_component,
             // GitHub
             commands::fetch_releases,
             commands::fetch_launcher_release_notes,

@@ -302,6 +302,7 @@ define_save_config_command!(
 enum ComponentCommandAction {
     Install,
     Reinstall,
+    Uninstall,
 }
 
 async fn run_component_command(
@@ -320,6 +321,11 @@ async fn run_component_command(
         }
         ComponentCommandAction::Reinstall => {
             component::reinstall_component(&client, id, Some(app_handle)).await
+        }
+        ComponentCommandAction::Uninstall => {
+            tokio::task::spawn_blocking(move || component::uninstall_component(id))
+                .await
+                .map_err(|e| AppError::process(format!("Uninstall task panicked: {}", e)))?
         }
     }
 }
@@ -350,6 +356,21 @@ pub async fn reinstall_component(
         &state,
         &component_id,
         ComponentCommandAction::Reinstall,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn uninstall_component(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    component_id: String,
+) -> Result<String> {
+    run_component_command(
+        &app_handle,
+        &state,
+        &component_id,
+        ComponentCommandAction::Uninstall,
     )
     .await
 }

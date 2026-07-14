@@ -70,6 +70,32 @@ pub(super) async fn install_component(
     }
 }
 
+/// Uninstall unified Python component (3.10 + 3.12).
+pub(super) fn uninstall_component() -> Result<String> {
+    let py310_dir = get_python_runtime_dir(RUNTIME_PY310);
+    let py312_dir = get_python_runtime_dir(RUNTIME_PY312);
+
+    let mut removed = Vec::new();
+    for dir in [&py310_dir, &py312_dir] {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir)
+                .map_err(|e| AppError::io(format!("Failed to remove Python runtime: {}", e)))?;
+            removed.push(
+                dir.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string(),
+            );
+        }
+    }
+
+    if removed.is_empty() {
+        Ok("Python 组件未安装".to_string())
+    } else {
+        Ok(format!("已卸载 Python: {}", removed.join(", ")))
+    }
+}
+
 /// Reinstall unified Python component (3.10 + 3.12).
 pub(super) async fn reinstall_component(
     client: &Client,

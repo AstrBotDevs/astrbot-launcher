@@ -125,6 +125,18 @@ pub async fn install_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> 
     Ok(format!("已安装 Node.js (LTS): {}", version))
 }
 
+/// Uninstall Node.js LTS.
+pub fn uninstall_nodejs() -> Result<String> {
+    let dir = get_component_dir("nodejs");
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir)
+            .map_err(|e| AppError::io(format!("Failed to remove Node.js: {}", e)))?;
+        Ok("已卸载 Node.js (LTS)".to_string())
+    } else {
+        Ok("Node.js (LTS) 组件未安装".to_string())
+    }
+}
+
 /// Reinstall Node.js LTS (always removes existing and re-downloads).
 pub async fn reinstall_nodejs(client: &Client, app_handle: Option<&AppHandle>) -> Result<String> {
     let version = do_install_nodejs(client, app_handle).await?;

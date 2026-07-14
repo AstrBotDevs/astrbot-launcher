@@ -34,6 +34,11 @@ export default function Versions() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [uninstallOpen, setUninstallOpen] = useState(false);
   const [versionToUninstall, setVersionToUninstall] = useState<InstalledVersion | null>(null);
+  const [componentUninstallOpen, setComponentUninstallOpen] = useState(false);
+  const [componentToUninstall, setComponentToUninstall] = useState<{
+    id: string;
+    display_name: string;
+  } | null>(null);
   const [releases, setReleases] = useState<GitHubRelease[]>([]);
   const releasesLoading = operations[OPERATION_KEYS.fetchReleases] || false;
 
@@ -145,6 +150,23 @@ export default function Versions() {
     [runOperation, clearDownloadProgress]
   );
 
+  const handleComponentUninstall = useCallback(async () => {
+    if (!componentToUninstall) return;
+    const key = OPERATION_KEYS.uninstallComponent(componentToUninstall.id);
+    await runOperation({
+      key,
+      task: () => api.uninstallComponent(componentToUninstall.id),
+      onSuccess: (result) => {
+        message.success(result);
+      },
+      onError: (error) => {
+        handleApiError(error);
+      },
+    });
+    setComponentUninstallOpen(false);
+    setComponentToUninstall(null);
+  }, [componentToUninstall, runOperation]);
+
   const isInstalled = (tagName: string) => versions.some((v) => v.version === tagName);
   const availableReleases = releases.filter((r) => !isInstalled(r.tag_name));
   const getInstalledRelease = (version: string) => releases.find((r) => r.tag_name === version);
@@ -178,9 +200,11 @@ export default function Versions() {
             renderItem={(comp) => {
               const installKey = OPERATION_KEYS.installComponent(comp.id);
               const reinstallKey = OPERATION_KEYS.reinstallComponent(comp.id);
+              const uninstallKey = OPERATION_KEYS.uninstallComponent(comp.id);
               const isInstalling = operations[installKey] || false;
               const isReinstalling = operations[reinstallKey] || false;
-              const isComponentOperating = isInstalling || isReinstalling;
+              const isUninstalling = operations[uninstallKey] || false;
+              const isComponentOperating = isInstalling || isReinstalling || isUninstalling;
               // During reinstall, backend may transiently report installed=false while files are replaced.
               // Keep UI in "installed/reinstall" branch to avoid button type flipping on route switches.
               const showAsInstalled = comp.installed || isReinstalling;
@@ -209,6 +233,21 @@ export default function Versions() {
                               loading={isComponentOperating}
                               disabled={isComponentOperating}
                               onClick={() => runComponentInstallAction(comp.id, 'reinstall')}
+                            />
+                          </Tooltip>,
+                          <Tooltip title="卸载" key="uninstall">
+                            <Button
+                              type="text"
+                              danger
+                              icon={<DeleteOutlined />}
+                              disabled={isComponentOperating}
+                              onClick={() => {
+                                setComponentToUninstall({
+                                  id: comp.id,
+                                  display_name: comp.display_name,
+                                });
+                                setComponentUninstallOpen(true);
+                              }}
                             />
                           </Tooltip>,
                         ].filter(Boolean)
@@ -435,6 +474,31 @@ export default function Versions() {
         onCancel={() => {
           setUninstallOpen(false);
           setVersionToUninstall(null);
+        }}
+      />
+
+      {/* Component Uninstall Modal */}
+      <ConfirmModal
+        open={componentUninstallOpen}
+        title="确认卸载组件"
+        danger
+        content={
+          <>
+            <p>确定卸载此组件？卸载后需重新下载才能使用。</p>
+            {componentToUninstall && (
+              <Text type="secondary">组件: {componentToUninstall.display_name}</Text>
+            )}
+          </>
+        }
+        loading={
+          componentToUninstall
+            ? operations[OPERATION_KEYS.uninstallComponent(componentToUninstall.id)] || false
+            : false
+        }
+        onConfirm={handleComponentUninstall}
+        onCancel={() => {
+          setComponentUninstallOpen(false);
+          setComponentToUninstall(null);
         }}
       />
     </>
