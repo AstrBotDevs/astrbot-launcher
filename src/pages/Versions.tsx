@@ -200,9 +200,11 @@ export default function Versions() {
             renderItem={(comp) => {
               const installKey = OPERATION_KEYS.installComponent(comp.id);
               const reinstallKey = OPERATION_KEYS.reinstallComponent(comp.id);
+              const uninstallKey = OPERATION_KEYS.uninstallComponent(comp.id);
               const isInstalling = operations[installKey] || false;
               const isReinstalling = operations[reinstallKey] || false;
-              const isComponentOperating = isInstalling || isReinstalling;
+              const isUninstalling = operations[uninstallKey] || false;
+              const isComponentOperating = isInstalling || isReinstalling || isUninstalling;
               // During reinstall, backend may transiently report installed=false while files are replaced.
               // Keep UI in "installed/reinstall" branch to avoid button type flipping on route switches.
               const showAsInstalled = comp.installed || isReinstalling;
