@@ -223,7 +223,6 @@ jobs:
           set -euo pipefail
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
             echo "APPLE_CERTIFICATE is not configured; skipping certificate import."
-            printf 'signing_identity=\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
@@ -258,7 +257,6 @@ jobs:
             exit 1
           fi
           printf 'APPLE_SIGNING_IDENTITY=%s\n' "$CERT_ID" >> "$GITHUB_ENV"
-          printf 'signing_identity=%s\n' "$CERT_ID" >> "$GITHUB_OUTPUT"
           echo "Imported signing identity: $CERT_ID"
 
       - uses: tauri-apps/tauri-action@v0
