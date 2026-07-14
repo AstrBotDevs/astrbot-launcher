@@ -16,7 +16,6 @@ pub(crate) const MAINLAND_PYTHON_BUILD_STANDALONE_BASE: &str =
     "https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/";
 pub(crate) const MAINLAND_UV_RELEASE_BASE: &str =
     "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/";
-pub(crate) const MAINLAND_ASTRBOT_RELEASES_API: &str = "https://api.soulter.top/releases";
 pub(crate) const MAINLAND_ASTRBOT_DOWNLOAD_PROXY: &str = "https://gh-proxy.org/";
 
 pub(crate) fn mainland_acceleration(config: &AppConfig) -> bool {
@@ -73,7 +72,7 @@ pub(crate) fn npm_registry(config: &AppConfig) -> Option<String> {
 
 pub(crate) fn astrbot_releases_api_url(config: &AppConfig) -> String {
     if mainland_acceleration(config) {
-        MAINLAND_ASTRBOT_RELEASES_API.to_string()
+        build_api_url(MAINLAND_ASTRBOT_DOWNLOAD_PROXY)
     } else {
         build_api_url(&config.github_proxy)
     }
