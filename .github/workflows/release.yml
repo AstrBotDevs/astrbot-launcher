@@ -212,11 +212,64 @@ jobs:
           $json.bundle.externalBin = @($existing)
           $json | ConvertTo-Json -Depth 100 | Out-File -FilePath $path -Encoding utf8NoBOM
 
+      - name: Import Apple Developer Certificate (macOS)
+        if: runner.os == 'macOS'
+        id: import_apple_certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE is not configured; skipping certificate import."
+            printf 'signing_identity=\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security set-keychain-settings -t 7200 -u "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          signing_identities=()
+          while IFS= read -r identity; do
+            signing_identities+=("$identity")
+          done < <(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" || true)
+          if [ "${#signing_identities[@]}" -eq 0 ]; then
+            echo "::error::No Developer ID Application identity found in keychain." >&2
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+            exit 1
+          fi
+          if [ "${#signing_identities[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Developer ID Application identity, found ${#signing_identities[@]}." >&2
+            printf '%s\n' "${signing_identities[@]}" >&2
+            exit 1
+          fi
+          CERT_ID=$(printf '%s\n' "${signing_identities[0]}" | awk -F'"' '{print $2}')
+          if [ -z "$CERT_ID" ]; then
+            echo "::error::Failed to parse Developer ID Application identity." >&2
+            exit 1
+          fi
+          printf 'APPLE_SIGNING_IDENTITY=%s\n' "$CERT_ID" >> "$GITHUB_ENV"
+          printf 'signing_identity=%s\n' "$CERT_ID" >> "$GITHUB_OUTPUT"
+          echo "Imported signing identity: $CERT_ID"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'App v__VERSION__'
