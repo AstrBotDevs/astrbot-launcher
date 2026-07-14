@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "astrbot-launcher"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "chrono",
  "dirs 6.0.0",
