@@ -25,6 +25,7 @@ interface AppState {
   backups: BackupInfo[];
   components: ComponentStatus[];
   config: AppConfig | null;
+  dataDir: string | null;
   loading: boolean;
   initialized: boolean;
 
@@ -145,6 +146,7 @@ export const useAppStore = create<AppState>((set, get) => {
       backups: snapshot.backups,
       components: nextComponents,
       config: snapshot.config,
+      dataDir: snapshot.data_dir,
       initialized: true,
     });
   };
@@ -182,6 +184,7 @@ export const useAppStore = create<AppState>((set, get) => {
     backups: [],
     components: [],
     config: null,
+    dataDir: null,
     loading: false,
     initialized: false,
     operations: {},

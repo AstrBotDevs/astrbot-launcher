@@ -33,10 +33,8 @@ pub(crate) const MIN_WINDOW_WIDTH: u32 = 1000;
 pub(crate) const MIN_WINDOW_HEIGHT: u32 = 680;
 
 fn validate_window_state() {
-    let state_path = match dirs::config_dir() {
-        Some(d) => d
-            .join("com.github.raven95676.astrbot-launcher")
-            .join(".window-state.json"),
+    let state_path = match utils::paths::launcher_config_dir() {
+        Some(d) => d.join(".window-state.json"),
         None => return,
     };
 
@@ -126,6 +124,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage({
             let startup_client = (|| {
                 let config = load_config()?;
@@ -175,6 +174,9 @@ pub fn run() {
             commands::save_theme_preference,
             commands::save_mainland_acceleration,
             commands::is_macos,
+            // Data Directory
+            commands::set_data_dir,
+            commands::open_folder,
             // Components
             commands::install_component,
             commands::reinstall_component,

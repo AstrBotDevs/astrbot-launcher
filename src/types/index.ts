@@ -68,6 +68,12 @@ export interface AppSnapshot {
   backups: BackupInfo[];
   components: ComponentsSnapshot;
   config: AppConfig;
+  data_dir: string;
+}
+
+export interface DataDirChangeResult {
+  old_dir: string;
+  new_dir: string;
 }
 
 export type InstanceState = 'stopped' | 'starting' | 'running' | 'stopping';
