@@ -773,6 +773,7 @@ export default function Advanced() {
         <DataDirMigrationModal
           key={pendingDataDirChange.old_dir + ' | ' + pendingDataDirChange.new_dir}
           change={pendingDataDirChange}
+          onExitFailed={() => setPendingDataDirChange(null)}
         />
       )}
     </>

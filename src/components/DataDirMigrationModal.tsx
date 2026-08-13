@@ -12,10 +12,12 @@ const CONFIRM_WAIT_SECONDS = 3;
 
 interface DataDirMigrationModalProps {
   change: DataDirChangeResult;
+  onExitFailed: () => void;
 }
 
-export function DataDirMigrationModal({ change }: DataDirMigrationModalProps) {
+export function DataDirMigrationModal({ change, onExitFailed }: DataDirMigrationModalProps) {
   const [remaining, setRemaining] = useState(CONFIRM_WAIT_SECONDS);
+  const [exiting, setExiting] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -30,6 +32,16 @@ export function DataDirMigrationModal({ change }: DataDirMigrationModalProps) {
     api.openFolder(path).catch(handleApiError);
   };
 
+  const handleExit = async () => {
+    setExiting(true);
+    try {
+      await exit(0);
+    } catch (error) {
+      handleApiError(error, '退出应用失败');
+      onExitFailed();
+    }
+  };
+
   return (
     <Modal
       open
@@ -38,7 +50,13 @@ export function DataDirMigrationModal({ change }: DataDirMigrationModalProps) {
       maskClosable={false}
       keyboard={false}
       footer={[
-        <Button key="confirm" type="primary" disabled={!ready} onClick={() => void exit(0)}>
+        <Button
+          key="confirm"
+          type="primary"
+          disabled={!ready || exiting}
+          loading={exiting}
+          onClick={() => void handleExit()}
+        >
           {ready ? '我已知晓，退出应用' : `我已知晓（${remaining} 秒后可用）`}
         </Button>,
       ]}

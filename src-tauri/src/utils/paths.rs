@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
+use once_cell::sync::Lazy;
+
 use crate::error::{AppError, Result};
 use crate::utils::sync::{read_lock_recover, write_lock_recover};
 
@@ -15,8 +17,11 @@ const LAUNCHER_CONFIG_SUBDIR: &str = "com.github.raven95676.astrbot-launcher";
 /// File storing the user-configured data directory override.
 const DATA_DIR_OVERRIDE_FILE: &str = ".data-dir.json";
 
-/// Cached resolved data directory. `None` means "not resolved yet".
-static DATA_DIR_CACHE: RwLock<Option<PathBuf>> = RwLock::new(None);
+/// Resolved data directory. Initialized from the override file (if any) or the
+/// default location on first use, and re-resolved whenever the override
+/// changes.
+static DATA_DIR_CACHE: Lazy<RwLock<PathBuf>> =
+    Lazy::new(|| RwLock::new(load_data_dir_override().unwrap_or_else(default_data_dir)));
 
 /// Get the launcher config directory (`<config_dir>/com.github.raven95676.astrbot-launcher`).
 pub(crate) fn launcher_config_dir() -> Option<PathBuf> {
@@ -85,25 +90,12 @@ fn load_data_dir_override() -> Option<PathBuf> {
 /// Uses the user-configured override if present, otherwise falls back to
 /// the default (~/.astrbot_launcher).
 pub(crate) fn get_data_dir() -> PathBuf {
-    let cached = read_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE").clone();
-    if let Some(dir) = cached {
-        return dir;
-    }
-
-    let dir = load_data_dir_override().unwrap_or_else(default_data_dir);
-    let mut guard = write_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE");
-    if guard.is_none() {
-        *guard = Some(dir.clone());
-    }
-    dir
+    read_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE").clone()
 }
 
-/// Persist a new data directory override, or remove the override to fall back
-/// to the default when `new_dir` is `None`.
-///
-/// Takes effect for all path helpers immediately and for the rest of the
-/// application after a restart. Does not migrate any data.
-pub(crate) fn set_data_dir_override(new_dir: Option<&Path>) -> Result<()> {
+/// Persist a data directory override to disk, or remove the override file to
+/// fall back to the default when `new_dir` is `None`.
+fn persist_data_dir_override(new_dir: Option<&Path>) -> Result<()> {
     let config_dir = launcher_config_dir()
         .ok_or_else(|| AppError::other("无法确定应用配置目录，请检查操作系统环境后重试"))?;
     let override_path = config_dir.join(DATA_DIR_OVERRIDE_FILE);
@@ -113,18 +105,31 @@ pub(crate) fn set_data_dir_override(new_dir: Option<&Path>) -> Result<()> {
         fs::create_dir_all(&config_dir).map_err(|e| AppError::io(e.to_string()))?;
         let payload = serde_json::json!({ "data_dir": dir.to_string_lossy() });
         fs::write(&override_path, payload.to_string()).map_err(|e| AppError::io(e.to_string()))?;
-
-        let mut guard = write_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE");
-        *guard = Some(dir.to_path_buf());
     } else {
         match fs::remove_file(&override_path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(AppError::io(e.to_string())),
         }
-        let mut guard = write_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE");
-        *guard = Some(default_data_dir());
     }
+    Ok(())
+}
+
+/// Re-resolve the cached data directory from the override file.
+fn recompute_data_dir_cache() {
+    let dir = load_data_dir_override().unwrap_or_else(default_data_dir);
+    let mut guard = write_lock_recover(&DATA_DIR_CACHE, "DATA_DIR_CACHE");
+    *guard = dir;
+}
+
+/// Persist a new data directory override, or remove the override to fall back
+/// to the default when `new_dir` is `None`.
+///
+/// Takes effect for all path helpers immediately and for the rest of the
+/// application after a restart. Does not migrate any data.
+pub(crate) fn set_data_dir_override(new_dir: Option<&Path>) -> Result<()> {
+    persist_data_dir_override(new_dir)?;
+    recompute_data_dir_cache();
     Ok(())
 }
 
