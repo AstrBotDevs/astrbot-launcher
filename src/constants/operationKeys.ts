@@ -29,6 +29,7 @@ export const OPERATION_KEYS = {
   advancedSaveUseUvForDeps: 'adv:save-use-uv-for-deps',
   advancedSaveLockCheckExtensionWhitelist: 'adv:save-lock-check-extension-whitelist',
   advancedSaveThemePreference: 'adv:save-theme-preference',
+  advancedSetDataDir: 'adv:set-data-dir',
   advancedClearData: (instanceId: string) => `adv:data-${instanceId}`,
   advancedClearVenv: (instanceId: string) => `adv:venv-${instanceId}`,
   advancedClearPycache: (instanceId: string) => `adv:pycache-${instanceId}`,

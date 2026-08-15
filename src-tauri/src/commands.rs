@@ -22,7 +22,10 @@ use crate::process::ProcessManager;
 use crate::utils::index_url::normalize_default_index;
 use crate::utils::lock_check::{collect_files_for_lock_check, ensure_target_not_locked};
 use crate::utils::net::{build_http_client_with_proxy, check_url};
-use crate::utils::paths::get_instance_core_dir;
+use crate::utils::paths::{
+    default_data_dir, ensure_data_dirs, get_data_dir, get_instance_core_dir, set_data_dir_override,
+    validate_data_dir,
+};
 use crate::utils::proxy::{
     build_single_url_proxy_settings, ProxyFields, ProxySource, DEFAULT_NO_PROXY_VALUE,
 };
@@ -104,6 +107,7 @@ pub(crate) fn build_app_snapshot_with(
         backups,
         components: component::build_components_snapshot(),
         config: config_for_snapshot,
+        data_dir: get_data_dir().display().to_string(),
     })
 }
 
@@ -132,6 +136,7 @@ pub struct AppSnapshot {
     pub backups: Vec<BackupInfo>,
     pub components: ComponentsSnapshot,
     pub config: AppConfig,
+    pub data_dir: String,
 }
 
 // === Config ===
@@ -296,6 +301,67 @@ define_save_config_command!(
     theme_preference: ThemePreference,
     theme_preference
 );
+
+// === Data Directory ===
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DataDirChangeResult {
+    pub old_dir: String,
+    pub new_dir: String,
+}
+
+/// Compare data directory paths case-insensitively on case-insensitive
+/// filesystems by canonicalizing paths that already exist.
+fn comparable_data_dir(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf())
+}
+
+#[tauri::command]
+pub async fn set_data_dir(
+    new_dir: String,
+    state: State<'_, AppState>,
+) -> Result<DataDirChangeResult> {
+    if !state.process_manager.get_active_ids().is_empty() {
+        return Err(AppError::other("请先停止所有运行中的实例，再更改数据目录"));
+    }
+
+    let old_dir = get_data_dir();
+    let trimmed = new_dir.trim();
+
+    let new_path = if trimmed.is_empty() {
+        // Reset to the default location.
+        default_data_dir()
+    } else {
+        let path = std::path::PathBuf::from(trimmed);
+        validate_data_dir(&path)?;
+        path
+    };
+
+    if comparable_data_dir(&new_path) == comparable_data_dir(&old_dir) {
+        return Err(AppError::other("新数据目录与当前数据目录相同"));
+    }
+
+    set_data_dir_override(if trimmed.is_empty() {
+        None
+    } else {
+        Some(&new_path)
+    })?;
+    ensure_data_dirs()?;
+
+    Ok(DataDirChangeResult {
+        old_dir: old_dir.display().to_string(),
+        new_dir: new_path.display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn open_folder(path: String) -> Result<()> {
+    let dir = std::path::PathBuf::from(path);
+    if !dir.is_dir() {
+        return Err(AppError::other("目标文件夹不存在"));
+    }
+    open_path(&dir, None::<&str>).map_err(|e| AppError::io(e.to_string()))
+}
 
 // === Components ===
 

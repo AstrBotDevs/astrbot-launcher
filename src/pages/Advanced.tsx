@@ -7,7 +7,9 @@ import { SKIP_OPERATION, useOperationRunner } from '../hooks/useOperationRunner'
 import { findLatestOrSkip } from '../hooks/operationGuards';
 import { useLockCheckModal } from '../hooks/useLockCheckModal';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { DataDirMigrationModal } from '../components/DataDirMigrationModal';
 import { GeneralSettingsCard } from '../components/advanced/GeneralSettingsCard';
+import { DataDirSettingsCard } from '../components/advanced/DataDirSettingsCard';
 import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
 import { ProxySettingsCard } from '../components/advanced/ProxySettingsCard';
 import { RepairInstanceModal } from '../components/advanced/RepairInstanceModal';
@@ -16,7 +18,7 @@ import { TroubleshootingCard } from '../components/advanced/TroubleshootingCard'
 import { PageHeader } from '../components/PageHeader';
 import { handleApiError } from '../utils';
 import { OPERATION_KEYS } from '../constants';
-import type { RepairPreserveScope, ThemePreference } from '../types';
+import type { DataDirChangeResult, RepairPreserveScope, ThemePreference } from '../types';
 import {
   normalizeInputValue,
   validateGithubProxy,
@@ -63,6 +65,7 @@ export default function Advanced() {
   const config = useAppStore((s) => s.config);
   const components = useAppStore((s) => s.components);
   const loading = useAppStore((s) => s.loading);
+  const dataDir = useAppStore((s) => s.dataDir);
   const reloadSnapshot = useAppStore((s) => s.reloadSnapshot);
   const rebuildSnapshotFromDisk = useAppStore((s) => s.rebuildSnapshotFromDisk);
   const setThemePreference = useAppStore((s) => s.setThemePreference);
@@ -96,6 +99,9 @@ export default function Advanced() {
   // Modal state
   const [confirmModal, setConfirmModal] = useState<ConfirmModalType>(null);
   const [repairModalOpen, setRepairModalOpen] = useState(false);
+  const [pendingDataDirChange, setPendingDataDirChange] = useState<DataDirChangeResult | null>(
+    null
+  );
   const { lockCheckModal, closeLockCheckModal, handleLockCheckError } =
     useLockCheckModal<LockCheckRetryPayload>();
 
@@ -354,6 +360,17 @@ export default function Advanced() {
     });
   };
 
+  const handleSetDataDir = async (newDir: string) => {
+    await runOperation({
+      key: OPERATION_KEYS.advancedSetDataDir,
+      reloadAfter: false,
+      task: () => api.setDataDir(newDir),
+      onSuccess: (result) => {
+        setPendingDataDirChange(result);
+      },
+    });
+  };
+
   const handleClearInstance = async ({
     selectedId,
     operationKey,
@@ -559,6 +576,7 @@ export default function Advanced() {
   const lockCheckExtensionWhitelistSaving =
     operations[OPERATION_KEYS.advancedSaveLockCheckExtensionWhitelist] || false;
   const themePreferenceSaving = operations[OPERATION_KEYS.advancedSaveThemePreference] || false;
+  const dataDirSaving = operations[OPERATION_KEYS.advancedSetDataDir] || false;
   const autostartMinimizeToTraySaving =
     operations[OPERATION_KEYS.advancedSaveAutostartMinimizeToTray] || false;
   const lockCheckModalLoading =
@@ -644,6 +662,12 @@ export default function Advanced() {
         onMainlandAccelerationChange={handleMainlandAccelerationChange}
         onLockCheckExtensionWhitelistChange={handleLockCheckExtensionWhitelistChange}
         onThemePreferenceChange={handleThemePreferenceChange}
+      />
+
+      <DataDirSettingsCard
+        dataDir={dataDir}
+        saving={dataDirSaving}
+        onSetDataDir={handleSetDataDir}
       />
 
       <ProxySettingsCard
@@ -744,6 +768,14 @@ export default function Advanced() {
         onContinue={handleContinueAfterLockCheckFailure}
         onClose={closeLockCheckModal}
       />
+
+      {pendingDataDirChange && (
+        <DataDirMigrationModal
+          key={pendingDataDirChange.old_dir + ' | ' + pendingDataDirChange.new_dir}
+          change={pendingDataDirChange}
+          onExitFailed={() => setPendingDataDirChange(null)}
+        />
+      )}
     </>
   );
 }

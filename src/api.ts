@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GitHubRelease, AppSnapshot, ThemePreference } from './types';
-import type { RepairPreserveScope } from './types';
+import type { DataDirChangeResult, RepairPreserveScope } from './types';
 
 type LockCheckRequest =
   | {
@@ -50,6 +50,12 @@ export const api = {
     invoke<void>('save_lock_check_extension_whitelist', { lockCheckExtensionWhitelist }),
   saveThemePreference: (themePreference: ThemePreference) =>
     invoke<void>('save_theme_preference', { themePreference }),
+
+  // ========================================
+  // Data Directory
+  // ========================================
+  setDataDir: (newDir: string) => invoke<DataDirChangeResult>('set_data_dir', { newDir }),
+  openFolder: (path: string) => invoke<void>('open_folder', { path }),
 
   // ========================================
   // Components
