@@ -33,6 +33,7 @@ fn update_instance_config(
     version: Option<&str>,
     host: Option<&str>,
     port: Option<u16>,
+    check_update_enabled: Option<bool>,
 ) -> Result<()> {
     let id = instance_id.to_string();
     let name_owned = name.map(ToOwned::to_owned);
@@ -56,6 +57,9 @@ fn update_instance_config(
         }
         if let Some(p) = port {
             instance.port = p;
+        }
+        if let Some(c) = check_update_enabled {
+            instance.check_update_enabled = c;
         }
         Ok(())
     })
@@ -133,6 +137,7 @@ pub fn create_instance(name: &str, version: &str, port: u16) -> Result<()> {
             host: DEFAULT_INSTANCE_HOST.to_string(),
             port,
             created_at: chrono::Utc::now().to_rfc3339(),
+            check_update_enabled: true,
         };
 
         manifest.instances.insert(key, instance);
@@ -178,6 +183,7 @@ pub async fn update_instance(
     version: Option<&str>,
     host: Option<&str>,
     port: Option<u16>,
+    check_update_enabled: Option<bool>,
     app_handle: &AppHandle,
 ) -> Result<()> {
     validate_instance_id(instance_id)?;
@@ -270,13 +276,20 @@ pub async fn update_instance(
 
         // Update config(version + optional name/port) after the operation completes successfully.
         // This prevents "config says new version" while the deployment hasn't fully finished.
-        update_instance_config(instance_id, name, Some(new_version.as_str()), host, port)?;
+        update_instance_config(
+            instance_id,
+            name,
+            Some(new_version.as_str()),
+            host,
+            port,
+            check_update_enabled,
+        )?;
 
         emit_progress(app_handle, instance_id, "done", "更新完成", 100);
         Ok(())
     } else {
         // No version change
-        update_instance_config(instance_id, name, version, host, port)
+        update_instance_config(instance_id, name, version, host, port, check_update_enabled)
     }
 }
 
@@ -318,6 +331,7 @@ pub fn list_instances(
                 pid_tracker_not_available,
                 configured_host: normalize_instance_host(&inst.host),
                 configured_port: inst.port,
+                check_update_enabled: inst.check_update_enabled,
             }
         })
         .collect();

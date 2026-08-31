@@ -88,6 +88,7 @@ export interface InstanceStatus {
   pid_tracker_not_available: boolean;
   configured_host: string;
   configured_port: number;
+  check_update_enabled: boolean;
 }
 
 // ========================================

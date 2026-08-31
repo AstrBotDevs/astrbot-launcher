@@ -110,14 +110,18 @@ export const api = {
     name?: string,
     version?: string,
     host?: string,
-    port?: number
+    port?: number,
+    checkUpdateEnabled?: boolean
   ) =>
     invoke<void>('update_instance', {
       instanceId,
-      name: name ?? null,
-      version: version ?? null,
-      host: host ?? null,
-      port: port ?? null,
+      request: {
+        name: name ?? null,
+        version: version ?? null,
+        host: host ?? null,
+        port: port ?? null,
+        checkUpdateEnabled: checkUpdateEnabled ?? null,
+      },
     }),
   startInstance: (instanceId: string) => invoke<number>('start_instance', { instanceId }),
   stopInstance: (instanceId: string) => invoke<void>('stop_instance', { instanceId }),
