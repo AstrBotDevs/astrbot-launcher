@@ -10,6 +10,7 @@ import {
   InputNumber,
   Select,
   Tag,
+  Alert,
   Typography,
 } from 'antd';
 import { PlusOutlined, UpOutlined } from '@ant-design/icons';
@@ -26,7 +27,7 @@ import { EditInstanceModal } from '../components/EditInstanceModal';
 import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
 import { BatchUpgradeModal } from '../components/BatchUpgradeModal';
 import { PageHeader } from '../components/PageHeader';
-import { handleApiError } from '../utils';
+import { handleApiError, getErrorMessage } from '../utils';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 import { buildDashboardColumns } from './dashboardColumns';
 import { useBatchUpgrade } from '../hooks/useBatchUpgrade';
@@ -95,6 +96,7 @@ export default function Dashboard() {
   // All available releases (used for creation / editing)
   const [releases, setReleases] = useState<GitHubRelease[]>([]);
   const [releasesLoading, setReleasesLoading] = useState(false);
+  const [releasesError, setReleasesError] = useState<string | null>(null);
   const batchUpgrade = useBatchUpgrade(releases);
 
   // Stable content-based key to avoid re-running the effect when the instances
@@ -151,31 +153,33 @@ export default function Dashboard() {
     };
   }, [config?.check_instance_update, instanceVersionKeys, instances]);
 
-  useEffect(() => {
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  const fetchReleases = useCallback(async (cancelledRef?: { current: boolean }) => {
     setReleasesLoading(true);
-
-    void api
-      .fetchReleases()
-      .then((data) => {
-        if (!cancelled) {
-          setReleases(data);
-        }
-      })
-      .catch(() => {
-        // Silently ignore fetch errors
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setReleasesLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    setReleasesError(null);
+    try {
+      const data = await api.fetchReleases();
+      if (!cancelledRef?.current) {
+        setReleases(data);
+      }
+    } catch (error) {
+      if (!cancelledRef?.current) {
+        setReleasesError(getErrorMessage(error) || '获取版本列表失败');
+      }
+    } finally {
+      if (!cancelledRef?.current) {
+        setReleasesLoading(false);
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    const cancelled = { current: false };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchReleases(cancelled);
+    return () => {
+      cancelled.current = true;
+    };
+  }, [fetchReleases]);
 
   // ========================================
   // Instance Actions
@@ -509,24 +513,34 @@ export default function Dashboard() {
 
   const installedVersionSet = useMemo(() => new Set(versions.map((v) => v.version)), [versions]);
 
-  const versionOptions = useMemo(
-    () =>
-      releases.map((release) => ({
+  const versionOptions = useMemo(() => {
+    if (releases.length === 0 && versions.length > 0) {
+      return versions.map((v) => ({
         label: (
           <Space>
-            {release.name || release.tag_name}
-            {installedVersionSet.has(release.tag_name) ? (
-              <Tag color="green">已下载</Tag>
-            ) : (
-              <Tag>未下载</Tag>
-            )}
-            {release.prerelease && <Tag color="orange">预发行</Tag>}
+            {v.version}
+            <Tag color="green">已下载</Tag>
           </Space>
         ),
-        value: release.tag_name,
-      })),
-    [releases, installedVersionSet]
-  );
+        value: v.version,
+      }));
+    }
+
+    return releases.map((release) => ({
+      label: (
+        <Space>
+          {release.name || release.tag_name}
+          {installedVersionSet.has(release.tag_name) ? (
+            <Tag color="green">已下载</Tag>
+          ) : (
+            <Tag>未下载</Tag>
+          )}
+          {release.prerelease && <Tag color="orange">预发行</Tag>}
+        </Space>
+      ),
+      value: release.tag_name,
+    }));
+  }, [releases, versions, installedVersionSet]);
 
   const upgradableInstances = useMemo(
     () => (latestVersion ? instances.filter((inst) => instanceUpdateMap[inst.id]) : []),
@@ -633,7 +647,7 @@ export default function Dashboard() {
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => setCreateOpen(true)}
-              disabled={releasesLoading || releases.length === 0}
+              disabled={releasesLoading && versions.length === 0}
               loading={releasesLoading}
             >
               创建实例
@@ -641,6 +655,21 @@ export default function Dashboard() {
           </Space>
         }
       />
+
+      {releasesError && (
+        <Alert
+          message="获取版本列表失败"
+          description={releasesError}
+          type="error"
+          showIcon
+          action={
+            <Button size="small" onClick={() => fetchReleases()}>
+              重试
+            </Button>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       <Table
         dataSource={instances}
@@ -761,6 +790,7 @@ export default function Dashboard() {
         instances={upgradableInstances}
         latestVersion={latestVersion}
         onStart={batchUpgrade.start}
+        onContinueAfterLockCheck={batchUpgrade.continueAfterLockCheck}
         onClose={handleBatchUpgradeClose}
       />
 
