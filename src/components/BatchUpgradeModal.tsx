@@ -61,7 +61,10 @@ export function BatchUpgradeModal({
   const isLockChecking = phase === 'lockCheck';
   const isDone = phase === 'done';
   const hasError = phase === 'error';
-  const allowClose = isDone || hasError || isConfirming;
+  // Only allow closing via the upper-right/ESC/mask once the batch workflow is
+  // finished (success or error). During confirm/lockCheck/upgrading the user
+  // must use the explicit buttons to avoid accidental dismissal.
+  const allowClose = isDone || hasError;
 
   return (
     <Modal

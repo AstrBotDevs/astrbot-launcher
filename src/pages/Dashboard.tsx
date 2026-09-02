@@ -647,7 +647,7 @@ export default function Dashboard() {
               type="primary"
               icon={<PlusOutlined />}
               onClick={() => setCreateOpen(true)}
-              disabled={releasesLoading && versions.length === 0}
+              disabled={versionOptions.length === 0}
               loading={releasesLoading}
             >
               创建实例
