@@ -23,6 +23,7 @@ interface DashboardColumnsOptions {
   onEdit: (instance: InstanceStatus) => void;
   onDelete: (instance: InstanceStatus) => void;
   onViewLogs: (instance: InstanceStatus) => void;
+  onUpgrade: (instance: InstanceStatus) => void;
 }
 
 export function buildDashboardColumns({
@@ -42,6 +43,7 @@ export function buildDashboardColumns({
   onEdit,
   onDelete,
   onViewLogs,
+  onUpgrade,
 }: DashboardColumnsOptions): TableColumnsType<InstanceStatus> {
   return [
     {
@@ -75,18 +77,31 @@ export function buildDashboardColumns({
       dataIndex: 'version',
       key: 'version',
       width: 120,
-      render: (version: string, record: InstanceStatus) => (
-        <Space size={4}>
-          <span>{version}</span>
-          {instanceUpdateMap[record.id] && latestVersion && (
-            <Tooltip title={`最新版本: ${latestVersion}`}>
-              <Tag color="blue" style={{ marginInlineEnd: 0 }}>
-                可更新
-              </Tag>
-            </Tooltip>
-          )}
-        </Space>
-      ),
+      render: (version: string, record: InstanceStatus) => {
+        const upgradable = instanceUpdateMap[record.id] && latestVersion;
+        const upgrading = operations[OPERATION_KEYS.instance(record.id)] || false;
+
+        return (
+          <Space size={4}>
+            <span>{version}</span>
+            {upgradable && (
+              <Tooltip title={upgrading ? '更新中...' : `点击升级到最新版本: ${latestVersion}`}>
+                <Tag
+                  color="blue"
+                  style={{
+                    marginInlineEnd: 0,
+                    cursor: upgrading ? 'not-allowed' : 'pointer',
+                    opacity: upgrading ? 0.6 : 1,
+                  }}
+                  onClick={upgrading ? undefined : () => onUpgrade(record)}
+                >
+                  可更新
+                </Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: '操作',

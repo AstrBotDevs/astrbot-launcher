@@ -16,6 +16,7 @@ pub struct InstanceStatus {
     pub pid_tracker_not_available: bool,
     pub configured_host: String,
     pub configured_port: u16,
+    pub check_update_enabled: bool,
 }
 
 /// Deployment progress event payload.

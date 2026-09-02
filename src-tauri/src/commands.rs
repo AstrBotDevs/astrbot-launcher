@@ -599,23 +599,31 @@ pub async fn delete_instance(instance_id: String, state: State<'_, AppState>) ->
     instance::delete_instance(&instance_id)
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInstanceRequest {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub check_update_enabled: Option<bool>,
+}
+
 #[tauri::command]
 pub async fn update_instance(
     app_handle: AppHandle,
     instance_id: String,
-    name: Option<String>,
-    version: Option<String>,
-    host: Option<String>,
-    port: Option<u16>,
+    request: UpdateInstanceRequest,
     state: State<'_, AppState>,
 ) -> Result<()> {
     let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::update_instance(
         &instance_id,
-        name.as_deref(),
-        version.as_deref(),
-        host.as_deref(),
-        port,
+        request.name.as_deref(),
+        request.version.as_deref(),
+        request.host.as_deref(),
+        request.port,
+        request.check_update_enabled,
         &app_handle,
     )
     .await

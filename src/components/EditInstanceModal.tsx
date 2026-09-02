@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Form, Input, InputNumber, Modal, Select, Space } from 'antd';
+import { Form, Input, InputNumber, Modal, Select, Space, Tag, Checkbox, Typography } from 'antd';
 import { api } from '../api';
-import type { InstanceStatus, InstalledVersion } from '../types';
+import type { InstanceStatus, GitHubRelease } from '../types';
 
 const DEFAULT_DASHBOARD_HOST = '127.0.0.1';
 
@@ -21,12 +21,14 @@ type EditInstanceValues = {
   hostMode: DashboardHostMode;
   host: string;
   port?: number;
+  checkUpdateEnabled: boolean;
 };
 
 interface EditInstanceModalProps {
   open: boolean;
   instance: InstanceStatus | null;
-  versions: InstalledVersion[];
+  releases: GitHubRelease[];
+  installedVersions: Set<string>;
   onSubmit: (values: EditInstanceValues) => Promise<void>;
   onCancel: () => void;
 }
@@ -40,7 +42,8 @@ function getHostMode(host: string): DashboardHostMode {
 export function EditInstanceModal({
   open,
   instance,
-  versions,
+  releases,
+  installedVersions,
   onSubmit,
   onCancel,
 }: EditInstanceModalProps) {
@@ -58,6 +61,7 @@ export function EditInstanceModal({
         hostMode: getHostMode(host),
         host,
         port: instance.configured_port || 0,
+        checkUpdateEnabled: instance.check_update_enabled,
       });
       return;
     }
@@ -91,13 +95,33 @@ export function EditInstanceModal({
     };
   }, [watchedVersion, instance]);
 
-  const okText =
-    instance && watchedVersion !== instance.version ? (versionCmp > 0 ? '升级' : '降级') : '确定';
+  const isVersionChanged = instance && watchedVersion && watchedVersion !== instance.version;
+  const changeAction = isVersionChanged ? (versionCmp > 0 ? '升级' : '降级') : null;
+  const okText = changeAction ?? '确定';
 
   const versionOptions = useMemo(
-    () => versions.map((v) => ({ label: v.version, value: v.version })),
-    [versions]
+    () =>
+      releases.map((release) => ({
+        label: (
+          <Space>
+            {release.name || release.tag_name}
+            {installedVersions.has(release.tag_name) ? (
+              <Tag color="green">已下载</Tag>
+            ) : (
+              <Tag>未下载</Tag>
+            )}
+            {release.prerelease && <Tag color="orange">预发行</Tag>}
+          </Space>
+        ),
+        value: release.tag_name,
+      })),
+    [releases, installedVersions]
   );
+
+  const willDownloadVersion =
+    watchedVersion &&
+    instance?.version !== watchedVersion &&
+    !installedVersions.has(watchedVersion);
 
   return (
     <Modal
@@ -115,6 +139,14 @@ export function EditInstanceModal({
         </Form.Item>
         <Form.Item name="version" label="版本" rules={[{ required: true }]}>
           <Select options={versionOptions} />
+        </Form.Item>
+        {willDownloadVersion && (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+            此版本不存在于本地缓存，将在{changeAction ?? '保存'}实例时自动下载
+          </Typography.Text>
+        )}
+        <Form.Item name="checkUpdateEnabled" valuePropName="checked">
+          <Checkbox>允许检查更新时提示该实例可更新</Checkbox>
         </Form.Item>
         <Form.Item label="WebUI监听地址" required>
           <Space.Compact style={{ width: '100%' }}>

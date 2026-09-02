@@ -1,7 +1,19 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Table, Modal, Form, Input, InputNumber, Select, Alert, Typography } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import {
+  Button,
+  Space,
+  Table,
+  Modal,
+  Form,
+  Input,
+  InputNumber,
+  Select,
+  Tag,
+  Alert,
+  Typography,
+} from 'antd';
+import { PlusOutlined, UpOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import { message } from '../antdStatic';
 import type { InstanceStatus, GitHubRelease } from '../types';
@@ -13,10 +25,12 @@ import { DeployProgressModal } from '../components/DeployProgressModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { EditInstanceModal } from '../components/EditInstanceModal';
 import { LockCheckConfirmModal } from '../components/LockCheckConfirmModal';
+import { BatchUpgradeModal } from '../components/BatchUpgradeModal';
 import { PageHeader } from '../components/PageHeader';
-import { handleApiError } from '../utils';
+import { handleApiError, getErrorMessage } from '../utils';
 import { STATUS_MESSAGES, OPERATION_KEYS } from '../constants';
 import { buildDashboardColumns } from './dashboardColumns';
+import { useBatchUpgrade } from '../hooks/useBatchUpgrade';
 
 type InstanceActionOptions<T> = {
   id: string;
@@ -33,6 +47,7 @@ type PendingUpgradeEdit = {
   version: string;
   host: string;
   port: number;
+  checkUpdateEnabled: boolean;
 };
 
 export default function Dashboard() {
@@ -61,6 +76,7 @@ export default function Dashboard() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [singleUpgradeInstance, setSingleUpgradeInstance] = useState<InstanceStatus | null>(null);
   const [editingInstance, setEditingInstance] = useState<InstanceStatus | null>(null);
   const [instanceToDelete, setInstanceToDelete] = useState<InstanceStatus | null>(null);
   const {
@@ -71,10 +87,17 @@ export default function Dashboard() {
 
   // Forms
   const [createForm] = Form.useForm();
+  const selectedCreateVersion = Form.useWatch('version', createForm);
 
   // Version update hints
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [instanceUpdateMap, setInstanceUpdateMap] = useState<Record<string, boolean>>({});
+
+  // All available releases (used for creation / editing)
+  const [releases, setReleases] = useState<GitHubRelease[]>([]);
+  const [releasesLoading, setReleasesLoading] = useState(false);
+  const [releasesError, setReleasesError] = useState<string | null>(null);
+  const batchUpgrade = useBatchUpgrade(releases);
 
   // Stable content-based key to avoid re-running the effect when the instances
   // array reference changes but the actual items are identical (e.g. after snapshot refresh).
@@ -108,6 +131,9 @@ export default function Dashboard() {
         const latest = stable.tag_name;
         const entries = await Promise.all(
           instances.map(async (inst) => {
+            if (!inst.check_update_enabled) {
+              return [inst.id, false] as const;
+            }
             const cmp = await api.compareVersions(latest, inst.version);
             return [inst.id, cmp > 0] as const;
           })
@@ -125,7 +151,35 @@ export default function Dashboard() {
     return () => {
       cancelled = true;
     };
-  }, [config?.check_instance_update, instanceVersionKeys]);
+  }, [config?.check_instance_update, instanceVersionKeys, instances]);
+
+  const fetchReleases = useCallback(async (cancelledRef?: { current: boolean }) => {
+    setReleasesLoading(true);
+    setReleasesError(null);
+    try {
+      const data = await api.fetchReleases();
+      if (!cancelledRef?.current) {
+        setReleases(data);
+      }
+    } catch (error) {
+      if (!cancelledRef?.current) {
+        setReleasesError(getErrorMessage(error) || '获取版本列表失败');
+      }
+    } finally {
+      if (!cancelledRef?.current) {
+        setReleasesLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const cancelled = { current: false };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchReleases(cancelled);
+    return () => {
+      cancelled.current = true;
+    };
+  }, [fetchReleases]);
 
   // ========================================
   // Instance Actions
@@ -139,8 +193,13 @@ export default function Dashboard() {
         task: async () => {
           const { versions: latestVersions } = useAppStore.getState();
           if (!latestVersions.some((v) => v.version === values.version)) {
-            message.warning('所选版本不存在，请先刷新后重试');
-            return SKIP_OPERATION;
+            const release = releases.find((r) => r.tag_name === values.version);
+            if (!release) {
+              message.warning('所选版本不存在，请先刷新后重试');
+              return SKIP_OPERATION;
+            }
+            message.info(`正在下载版本 ${values.version}...`);
+            await api.installVersion(release);
           }
 
           await api.createInstance(values.name, values.version, values.port ?? 0);
@@ -150,9 +209,12 @@ export default function Dashboard() {
           setCreateOpen(false);
           createForm.resetFields();
         },
+        onError: (error) => {
+          handleApiError(error);
+        },
       });
     },
-    [createForm, runOperation]
+    [createForm, releases, runOperation]
   );
 
   const runInstanceEdit = useCallback(
@@ -177,8 +239,13 @@ export default function Dashboard() {
           }
 
           if (!latestVersions.some((v) => v.version === payload.version)) {
-            message.warning('所选版本不存在，请先刷新后重试');
-            return SKIP_OPERATION;
+            const release = releases.find((r) => r.tag_name === payload.version);
+            if (!release) {
+              message.warning('所选版本不存在，请先刷新后重试');
+              return SKIP_OPERATION;
+            }
+            message.info(`正在下载版本 ${payload.version}...`);
+            await api.installVersion(release);
           }
 
           const versionChanged = payload.version !== latestInstance.version;
@@ -203,7 +270,8 @@ export default function Dashboard() {
             payload.name,
             payload.version,
             payload.host,
-            payload.port
+            payload.port,
+            payload.checkUpdateEnabled
           );
         },
         onSuccess: () => {
@@ -232,11 +300,24 @@ export default function Dashboard() {
         },
       });
     },
-    [startDeploy, closeDeploy, runOperation, closeUpgradeLockModal, handleUpgradeLockCheckError]
+    [
+      startDeploy,
+      closeDeploy,
+      runOperation,
+      closeUpgradeLockModal,
+      handleUpgradeLockCheckError,
+      releases,
+    ]
   );
 
   const handleEdit = useCallback(
-    async (values: { name: string; version: string; host: string; port?: number }) => {
+    async (values: {
+      name: string;
+      version: string;
+      host: string;
+      port?: number;
+      checkUpdateEnabled: boolean;
+    }) => {
       if (!editingInstance) return;
 
       await runInstanceEdit({
@@ -245,9 +326,11 @@ export default function Dashboard() {
         version: values.version,
         host: values.host,
         port: values.port ?? 0,
+        checkUpdateEnabled: values.checkUpdateEnabled,
       });
+      await rebuildSnapshotFromDisk();
     },
-    [editingInstance, runInstanceEdit]
+    [editingInstance, runInstanceEdit, rebuildSnapshotFromDisk]
   );
 
   const handleContinueUpgradeAfterLockCheckFailure = useCallback(
@@ -428,6 +511,70 @@ export default function Dashboard() {
     [navigate]
   );
 
+  const installedVersionSet = useMemo(() => new Set(versions.map((v) => v.version)), [versions]);
+
+  const versionOptions = useMemo(() => {
+    if (releases.length === 0 && versions.length > 0) {
+      return versions.map((v) => ({
+        label: (
+          <Space>
+            {v.version}
+            <Tag color="green">已下载</Tag>
+          </Space>
+        ),
+        value: v.version,
+      }));
+    }
+
+    return releases.map((release) => ({
+      label: (
+        <Space>
+          {release.name || release.tag_name}
+          {installedVersionSet.has(release.tag_name) ? (
+            <Tag color="green">已下载</Tag>
+          ) : (
+            <Tag>未下载</Tag>
+          )}
+          {release.prerelease && <Tag color="orange">预发行</Tag>}
+        </Space>
+      ),
+      value: release.tag_name,
+    }));
+  }, [releases, versions, installedVersionSet]);
+
+  const upgradableInstances = useMemo(
+    () => (latestVersion ? instances.filter((inst) => instanceUpdateMap[inst.id]) : []),
+    [instances, instanceUpdateMap, latestVersion]
+  );
+
+  const openUpgradeModal = useCallback((instance: InstanceStatus) => {
+    setSingleUpgradeInstance(instance);
+  }, []);
+
+  const handleConfirmSingleUpgrade = useCallback(async () => {
+    if (!singleUpgradeInstance || !latestVersion) return;
+    const instance = singleUpgradeInstance;
+    setSingleUpgradeInstance(null);
+    await runInstanceEdit({
+      instanceId: instance.id,
+      name: instance.name,
+      version: latestVersion,
+      host: instance.configured_host,
+      port: instance.configured_port,
+      checkUpdateEnabled: instance.check_update_enabled,
+    });
+  }, [singleUpgradeInstance, latestVersion, runInstanceEdit]);
+
+  const handleBatchUpgrade = useCallback(() => {
+    if (!latestVersion || upgradableInstances.length === 0) return;
+    batchUpgrade.open(upgradableInstances, latestVersion);
+  }, [batchUpgrade, latestVersion, upgradableInstances]);
+
+  const handleBatchUpgradeClose = useCallback(() => {
+    batchUpgrade.resetAfterClose();
+    void rebuildSnapshotFromDisk();
+  }, [batchUpgrade, rebuildSnapshotFromDisk]);
+
   const columns = useMemo(
     () =>
       buildDashboardColumns({
@@ -447,6 +594,7 @@ export default function Dashboard() {
         onEdit: openEditModal,
         onDelete: openDeleteModal,
         onViewLogs: handleViewLogs,
+        onUpgrade: openUpgradeModal,
       }),
     [
       deployProgress,
@@ -465,13 +613,10 @@ export default function Dashboard() {
       openEditModal,
       openDeleteModal,
       handleViewLogs,
+      openUpgradeModal,
     ]
   );
 
-  const versionOptions = useMemo(
-    () => versions.map((v) => ({ label: v.version, value: v.version })),
-    [versions]
-  );
   const upgradeLockModalLoading =
     upgradeLockModal?.mode === 'checkFailed'
       ? operations[OPERATION_KEYS.instance(upgradeLockModal.payload.instanceId)] || false
@@ -488,22 +633,40 @@ export default function Dashboard() {
         onRefresh={() => rebuildSnapshotFromDisk()}
         refreshLoading={loading}
         actions={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateOpen(true)}
-            disabled={versions.length === 0}
-          >
-            创建实例
-          </Button>
+          <Space>
+            {upgradableInstances.length > 0 && (
+              <Button
+                icon={<UpOutlined />}
+                onClick={handleBatchUpgrade}
+                disabled={batchUpgrade.state.open}
+              >
+                批量更新 ({upgradableInstances.length})
+              </Button>
+            )}
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setCreateOpen(true)}
+              disabled={versionOptions.length === 0}
+              loading={releasesLoading}
+            >
+              创建实例
+            </Button>
+          </Space>
         }
       />
 
-      {initialized && versions.length === 0 && (
+      {releasesError && (
         <Alert
-          title="请先在「版本」页面下载 AstrBot 版本后再创建实例"
-          type="warning"
+          message="获取版本列表失败"
+          description={releasesError}
+          type="error"
           showIcon
+          action={
+            <Button size="small" onClick={() => fetchReleases()}>
+              重试
+            </Button>
+          }
           style={{ marginBottom: 16 }}
         />
       )}
@@ -537,6 +700,11 @@ export default function Dashboard() {
           <Form.Item name="version" label="版本" rules={[{ required: true }]}>
             <Select options={versionOptions} placeholder="选择版本" />
           </Form.Item>
+          {selectedCreateVersion && !installedVersionSet.has(selectedCreateVersion) && (
+            <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+              此版本不存在于本地缓存，将在创建实例时自动下载
+            </Typography.Text>
+          )}
           <Form.Item name="port" label="端口">
             <InputNumber
               min={0}
@@ -551,7 +719,8 @@ export default function Dashboard() {
       <EditInstanceModal
         open={editOpen}
         instance={editingInstance}
-        versions={versions}
+        releases={releases}
+        installedVersions={installedVersionSet}
         onSubmit={handleEdit}
         onCancel={() => {
           setEditOpen(false);
@@ -586,6 +755,43 @@ export default function Dashboard() {
         loading={upgradeLockModalLoading}
         onContinue={handleContinueUpgradeAfterLockCheckFailure}
         onClose={closeUpgradeLockModal}
+      />
+
+      {/* Single Upgrade Modal */}
+      <ConfirmModal
+        open={singleUpgradeInstance !== null}
+        title="确认更新实例"
+        content={
+          <>
+            <p>确定要将此实例升级到最新版本吗？</p>
+            {singleUpgradeInstance && (
+              <Typography.Text type="secondary">
+                实例名称: {singleUpgradeInstance.name}
+                <br />
+                当前版本: {singleUpgradeInstance.version}
+                <br />
+                目标版本: {latestVersion}
+              </Typography.Text>
+            )}
+          </>
+        }
+        loading={
+          singleUpgradeInstance
+            ? operations[OPERATION_KEYS.instance(singleUpgradeInstance.id)] || false
+            : false
+        }
+        lockOnLoading
+        onConfirm={handleConfirmSingleUpgrade}
+        onCancel={() => setSingleUpgradeInstance(null)}
+      />
+
+      <BatchUpgradeModal
+        state={batchUpgrade.state}
+        instances={upgradableInstances}
+        latestVersion={latestVersion}
+        onStart={batchUpgrade.start}
+        onContinueAfterLockCheck={batchUpgrade.continueAfterLockCheck}
+        onClose={handleBatchUpgradeClose}
       />
 
       {/* Deploy Progress Modal */}

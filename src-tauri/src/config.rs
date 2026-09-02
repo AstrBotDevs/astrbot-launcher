@@ -348,6 +348,8 @@ pub struct InstanceConfig {
     pub port: u16,
     #[serde(default)]
     pub created_at: String,
+    #[serde(default = "default_true")]
+    pub check_update_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
