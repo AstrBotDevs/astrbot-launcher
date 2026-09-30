@@ -1,4 +1,4 @@
-![Logo](https://github.com/user-attachments/assets/d28490ba-17f7-4c44-a27c-a9bcb22dd036)
+![AstrBot-Logo-Simplified](https://github.com/user-attachments/assets/ffd99b6b-3272-4682-beaa-6fe74250f7d9)
 
 # AstrBot Launcher
 
