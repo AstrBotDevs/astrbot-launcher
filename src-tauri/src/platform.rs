@@ -15,6 +15,18 @@ pub fn get_python_arch_target() -> Result<&'static str, String> {
     }
 }
 
+/// Python 3.10 was removed from python-build-standalone starting with 20261013.
+/// Use its final build instead of looking in a moving latest-release window.
+pub fn get_python310_asset() -> Result<(String, String), String> {
+    let arch_target = get_python_arch_target()?;
+    let version = "3.10.22";
+    let release = "20261009";
+    let url = format!(
+        "https://github.com/astral-sh/python-build-standalone/releases/download/{release}/cpython-{version}%2B{release}-{arch_target}-install_only_stripped.tar.gz"
+    );
+    Ok((url, version.to_string()))
+}
+
 /// Find a Python asset matching the given major version (e.g., "3.12" or "3.10").
 /// Returns (download_url, full_version) on success.
 pub fn find_python_asset_for_version(
