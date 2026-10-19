@@ -10,7 +10,8 @@ use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
 use crate::github::fetch_python_releases;
 use crate::network_config;
-use crate::platform::find_python_asset_for_version;
+use crate::platform::{find_python_asset_for_version, get_python310_asset};
+use crate::utils::index_url::wrap_with_proxy;
 use crate::utils::net::{ensure_success_status, send_get};
 use crate::utils::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
 
@@ -259,12 +260,7 @@ async fn install_python_version(
 ) -> Result<String> {
     let (url, python_version) = match load_config() {
         Ok(config) if network_config::mainland_acceleration(config.as_ref()) => {
-            let asset_names = fetch_mainland_python_asset_names(client).await?;
-            let (asset_name, version) =
-                find_mainland_python_asset_for_version(&asset_names, major_version)?;
-            let download_url =
-                network_config::build_mainland_python_asset_download_url(&asset_name);
-            (download_url, version)
+            find_mainland_python_asset(client, major_version).await?
         }
         Ok(config) => {
             let (github_url, python_version) =
@@ -304,10 +300,35 @@ async fn install_python_version(
     Ok(python_version)
 }
 
+async fn find_mainland_python_asset(
+    client: &Client,
+    major_version: &str,
+) -> Result<(String, String)> {
+    // The latest-only mirror no longer carries Python 3.10. Download its final
+    // build through the existing mainland GitHub acceleration service instead.
+    if major_version == "3.10" {
+        let (url, version) = get_python310_asset().map_err(AppError::python)?;
+        return Ok((
+            wrap_with_proxy(network_config::MAINLAND_ASTRBOT_DOWNLOAD_PROXY, &url),
+            version,
+        ));
+    }
+
+    let asset_names = fetch_mainland_python_asset_names(client).await?;
+    let (asset_name, version) =
+        find_mainland_python_asset_for_version(&asset_names, major_version)?;
+    let url = network_config::build_mainland_python_asset_download_url(&asset_name);
+    Ok((url, version))
+}
+
 async fn find_github_python_asset(
     client: &Client,
     major_version: &str,
 ) -> Result<(String, String)> {
+    if major_version == "3.10" {
+        return get_python310_asset().map_err(AppError::python);
+    }
+
     let releases = fetch_python_releases(client).await?;
 
     for release in &releases {
