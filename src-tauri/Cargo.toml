@@ -1,3 +1,8 @@
+[workspace]
+members = ["ctrlc_sender"]
+default-members = ["."]
+resolver = "2"
+
 [package]
 name = "astrbot-launcher"
 version = "0.3.12"
@@ -87,6 +92,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[profile.release.package.ctrlc_sender]
+opt-level = "s"
 
 [lints.clippy]
 correctness = { level = "deny", priority = -1 }

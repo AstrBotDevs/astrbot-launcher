@@ -189,29 +189,6 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Patch tauri conf for windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $path = "src-tauri/tauri.conf.json"
-          $json = Get-Content $path -Raw | ConvertFrom-Json
-          if ($null -eq $json.bundle) {
-            $json | Add-Member -NotePropertyName bundle -NotePropertyValue (@{})
-          }
-          $bin = "binaries/ctrlc_sender"
-          $existing = @()
-          if ($json.bundle.PSObject.Properties.Name -contains "externalBin" -and $null -ne $json.bundle.externalBin) {
-            $existing = @($json.bundle.externalBin)
-          }
-          if ($existing -notcontains $bin) {
-            $existing += $bin
-          }
-          if ($json.bundle.PSObject.Properties.Name -notcontains "externalBin") {
-            $json.bundle | Add-Member -NotePropertyName externalBin -NotePropertyValue @()
-          }
-          $json.bundle.externalBin = @($existing)
-          $json | ConvertTo-Json -Depth 100 | Out-File -FilePath $path -Encoding utf8NoBOM
-
       - name: Import Apple Developer Certificate (macOS)
         if: runner.os == 'macOS'
         id: import_apple_certificate

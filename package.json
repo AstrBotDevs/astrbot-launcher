@@ -12,9 +12,9 @@
     "fe:lint": "eslint src",
     "fe:lint:fix": "eslint src --fix",
     "fe:fmt": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "cargo:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml",
-    "cargo:check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "cargo:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets",
+    "cargo:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+    "cargo:check": "cargo check --manifest-path src-tauri/Cargo.toml --workspace",
+    "cargo:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets",
     "fmt:all": "pnpm run fe:fmt && pnpm run cargo:fmt",
     "check:all": "pnpm run fe:lint && pnpm run cargo:check"
   },

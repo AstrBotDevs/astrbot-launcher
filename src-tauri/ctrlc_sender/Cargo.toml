@@ -1,0 +1,14 @@
+[package]
+name = "ctrlc_sender"
+version = "0.1.0"
+edition = "2021"
+authors = ["Raven95676 <raven95676@gmail.com>"]
+license = "MIT"
+description = "Send CTRL+C to a Windows process by attaching to its console"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+] }
