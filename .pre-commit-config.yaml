@@ -18,14 +18,14 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --manifest-path src-tauri/Cargo.toml
+        entry: cargo fmt --manifest-path src-tauri/Cargo.toml --all
         language: system
         types_or: [rust]
         pass_filenames: false
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets
+        entry: cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets
         language: system
         types_or: [rust]
         pass_filenames: false
