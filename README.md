@@ -131,7 +131,7 @@ Access is denied
 
 ## 安全性说明
 
-本项目所有源代码公开，内嵌二进制文件ctrlc_sender.exe源码托管于<https://codeberg.org/Raven95676/ctrlc_sender>
+本项目所有源代码公开。
 
 ## 附注
 
