@@ -113,8 +113,8 @@ Access is denied
 当用户在“高级设置 -> 通用”中开启“中国大陆一键加速”后，启动器会忽略手动填写的代理和源设置，并改用以下预设地址：
 
 - npm 镜像源：<https://registry.npmmirror.com/>
-- Node.js 下载镜像：<https://mirrors.ustc.edu.cn/node/>
-- PyPI 镜像源：<https://mirrors.ustc.edu.cn/pypi/>
+- Node.js 下载镜像：<https://mirrors.cernet.edu.cn/nodejs-release/>
+- PyPI 镜像源：<https://mirrors.cernet.edu.cn/pypi/web/simple>
 - `astral-sh/python-build-standalone` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/>
 - `astral-sh/uv` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/>
 - AstrBot Release 下载加速代理： <https://gh-proxy.com>

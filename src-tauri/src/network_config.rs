@@ -10,8 +10,8 @@ use crate::utils::net::build_http_client_with_proxy;
 use crate::utils::proxy::{build_proxy_env_vars, resolve_proxy_from_config, ProxySettings};
 
 pub(crate) const MAINLAND_NPM_REGISTRY: &str = "https://registry.npmmirror.com/";
-pub(crate) const MAINLAND_NODEJS_MIRROR: &str = "https://mirrors.ustc.edu.cn/node/";
-pub(crate) const MAINLAND_PYPI_MIRROR: &str = "https://mirrors.ustc.edu.cn/pypi/";
+pub(crate) const MAINLAND_NODEJS_MIRROR: &str = "https://mirrors.cernet.edu.cn/nodejs-release/";
+pub(crate) const MAINLAND_PYPI_MIRROR: &str = "https://mirrors.cernet.edu.cn/pypi/web/simple";
 pub(crate) const MAINLAND_PYTHON_BUILD_STANDALONE_BASE: &str =
     "https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/";
 pub(crate) const MAINLAND_UV_RELEASE_BASE: &str =
