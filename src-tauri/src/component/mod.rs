@@ -20,7 +20,7 @@ pub use node_shim::generate_shims;
 pub use nodejs::build_nodejs_env_vars;
 pub use python::{create_venv, pip_install_requirements};
 pub use types::{ComponentId, ComponentsSnapshot};
-pub use uv::{is_uv_installed, uv_sync};
+pub use uv::{clear_uv_cache, is_uv_installed, uv_sync};
 
 use types::ComponentStatus;
 

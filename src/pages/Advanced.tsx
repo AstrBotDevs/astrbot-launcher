@@ -28,7 +28,8 @@ import {
   validatePypiMirror,
 } from './advancedSettings.validation';
 
-type ConfirmModalType = 'clearData' | 'clearVenv' | 'clearPycache' | 'rebuildManifest' | null;
+type ConfirmModalType =
+  'clearData' | 'clearVenv' | 'clearPycache' | 'clearUvCache' | 'rebuildManifest' | null;
 type SaveSettingOptions = {
   key: string;
   save: () => Promise<void>;
@@ -483,6 +484,18 @@ export default function Advanced() {
     await payload.retry();
   };
 
+  const handleClearUvCache = async () => {
+    await runOperation({
+      key: OPERATION_KEYS.advancedClearUvCache,
+      reloadAfter: false,
+      task: api.clearUvCache,
+      onSuccess: () => {
+        message.success('uv 缓存已清空');
+        setConfirmModal(null);
+      },
+    });
+  };
+
   const handleRebuildInstanceManifest = async () => {
     await runOperation({
       key: OPERATION_KEYS.advancedRebuildInstanceManifest,
@@ -553,6 +566,7 @@ export default function Advanced() {
     .map((i) => ({ label: i.name, value: i.id }));
   const runningInstances = instances.filter((i) => i.state !== 'stopped');
   const uvInstalled = components.some((c) => c.id === 'uv' && c.installed);
+  const clearUvCacheLoading = operations[OPERATION_KEYS.advancedClearUvCache] || false;
   const useUvSaving = operations[OPERATION_KEYS.advancedSaveUseUvForDeps] || false;
   const mainlandAccelerationSaving =
     operations[OPERATION_KEYS.advancedSaveMainlandAcceleration] || false;
@@ -592,6 +606,8 @@ export default function Advanced() {
         return clearVenvLoading;
       case 'clearPycache':
         return clearPycacheLoading;
+      case 'clearUvCache':
+        return clearUvCacheLoading;
       case 'rebuildManifest':
         return rebuildManifestLoading;
       default:
@@ -620,6 +636,14 @@ export default function Advanced() {
           title: '确认操作',
           content: '确定清空该实例的 Python 缓存？',
           onOk: () => void handleClearByType('clearPycache'),
+          isDanger: false,
+        };
+      case 'clearUvCache':
+        return {
+          title: '确认操作',
+          content:
+            '确定清空所有实例共享的 uv 缓存？后续安装依赖时将重新下载，已安装的依赖不受影响。',
+          onOk: () => void handleClearUvCache(),
           isDanger: false,
         };
       case 'rebuildManifest':
@@ -715,6 +739,9 @@ export default function Advanced() {
       />
 
       <TroubleshootingCard
+        uvInstalled={uvInstalled}
+        clearUvCacheLoading={clearUvCacheLoading}
+        onOpenClearUvCache={() => setConfirmModal('clearUvCache')}
         runningInstancesCount={runningInstances.length}
         ignoreExternalPath={config?.ignore_external_path ?? false}
         ignoreExternalPathSaving={ignoreExternalPathSaving}

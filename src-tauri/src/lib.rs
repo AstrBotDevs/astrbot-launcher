@@ -192,6 +192,7 @@ pub fn run() {
             commands::clear_instance_data,
             commands::clear_instance_venv,
             commands::clear_pycache,
+            commands::clear_uv_cache,
             commands::repair_instance,
             commands::rebuild_instance_manifest,
             // Instance Management

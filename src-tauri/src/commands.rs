@@ -540,6 +540,11 @@ pub async fn clear_instance_venv(instance_id: String, state: State<'_, AppState>
 }
 
 #[tauri::command]
+pub async fn clear_uv_cache() -> Result<()> {
+    component::clear_uv_cache().await
+}
+
+#[tauri::command]
 pub async fn clear_pycache(instance_id: String, state: State<'_, AppState>) -> Result<()> {
     let _guard = state.process_manager.acquire_guard(&instance_id)?;
     instance::clear_pycache(&instance_id)
