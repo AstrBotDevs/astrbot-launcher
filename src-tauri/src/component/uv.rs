@@ -89,7 +89,6 @@ pub async fn uv_sync(
 
     let mut cmd = Command::new(&uv_exe);
     cmd.arg("sync")
-        .arg("-qq")
         .arg("--active")
         .arg("--no-managed-python")
         .arg("--no-python-downloads")

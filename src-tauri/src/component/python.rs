@@ -146,7 +146,6 @@ pub async fn pip_install_requirements(
     cmd.arg("-m")
         .arg("pip")
         .arg("install")
-        .arg("-qqq")
         .arg("-r")
         .arg(&requirements_path_arg)
         .arg("-i")
