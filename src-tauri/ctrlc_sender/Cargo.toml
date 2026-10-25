@@ -7,6 +7,8 @@ license = "MIT"
 description = "Send CTRL+C to a Windows process by attaching to its console"
 
 [target.'cfg(windows)'.dependencies]
+dirs = "6.0.0"
+serde_json = "1"
 windows = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_System_Console",
