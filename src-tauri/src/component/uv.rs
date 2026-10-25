@@ -29,6 +29,39 @@ pub fn get_uv_executable() -> Result<PathBuf> {
     }
 }
 
+pub async fn clear_uv_cache() -> Result<()> {
+    if !is_uv_installed() {
+        return Err(AppError::other("uv 组件未安装"));
+    }
+
+    let mut cmd = Command::new(get_uv_executable()?);
+    cmd.arg("cache")
+        .arg("clean")
+        .arg("--cache-dir")
+        .arg(get_uv_cache_dir());
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::CREATE_NO_WINDOW;
+        cmd.creation_flags(CREATE_NO_WINDOW.0);
+    }
+
+    let output = cmd
+        .output()
+        .await
+        .map_err(|e| AppError::io(format!("无法运行 uv 缓存清理: {}", e)))?;
+    if !output.status.success() {
+        return Err(AppError::io(format!(
+            "uv 缓存清理失败 ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    log::info!("uv cache cleared");
+    Ok(())
+}
+
 pub async fn uv_sync(
     venv_python: &std::path::Path,
     venv_dir: &std::path::Path,

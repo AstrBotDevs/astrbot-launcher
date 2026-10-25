@@ -53,6 +53,9 @@ function ActionRow({
 }
 
 interface TroubleshootingCardProps {
+  uvInstalled: boolean;
+  clearUvCacheLoading: boolean;
+  onOpenClearUvCache: () => void;
   runningInstancesCount: number;
   ignoreExternalPath: boolean;
   ignoreExternalPathSaving: boolean;
@@ -62,7 +65,8 @@ interface TroubleshootingCardProps {
   selectedVenvInstance: string | null;
   selectedPycacheInstance: string | null;
   selectedRepairInstance: string | null;
-  confirmModal: 'clearData' | 'clearVenv' | 'clearPycache' | 'rebuildManifest' | null;
+  confirmModal:
+    'clearData' | 'clearVenv' | 'clearPycache' | 'clearUvCache' | 'rebuildManifest' | null;
   clearDataLoading: boolean;
   clearVenvLoading: boolean;
   clearPycacheLoading: boolean;
@@ -81,6 +85,9 @@ interface TroubleshootingCardProps {
 }
 
 export function TroubleshootingCard({
+  uvInstalled,
+  clearUvCacheLoading,
+  onOpenClearUvCache,
   runningInstancesCount,
   ignoreExternalPath,
   ignoreExternalPathSaving,
@@ -168,6 +175,21 @@ export function TroubleshootingCard({
             disabled={confirmModal === 'clearVenv'}
             loading={clearVenvLoading}
           />
+          {uvInstalled && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Text style={{ width: 140 }}>清空 uv 缓存:</Text>
+              <Button
+                type="primary"
+                icon={<PlayCircleOutlined />}
+                disabled={confirmModal === 'clearUvCache'}
+                loading={clearUvCacheLoading}
+                onClick={onOpenClearUvCache}
+              >
+                执行
+              </Button>
+              <Text type="secondary">清理所有实例共享的 uv 缓存，后续安装依赖时会重新下载</Text>
+            </div>
+          )}
           <ActionRow
             label="清空 Python 缓存"
             options={instanceOptions}
