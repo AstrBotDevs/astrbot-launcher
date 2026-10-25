@@ -9,7 +9,7 @@ use crate::utils::index_url::{normalize_default_index, wrap_with_proxy};
 use crate::utils::net::build_http_client_with_proxy;
 use crate::utils::proxy::{build_proxy_env_vars, resolve_proxy_from_config, ProxySettings};
 
-pub(crate) const MAINLAND_NPM_REGISTRY: &str = "https://npmreg.proxy.ustclug.org/";
+pub(crate) const MAINLAND_NPM_REGISTRY: &str = "https://registry.npmmirror.com/";
 pub(crate) const MAINLAND_NODEJS_MIRROR: &str = "https://mirrors.ustc.edu.cn/node/";
 pub(crate) const MAINLAND_PYPI_MIRROR: &str = "https://mirrors.ustc.edu.cn/pypi/";
 pub(crate) const MAINLAND_PYTHON_BUILD_STANDALONE_BASE: &str =
