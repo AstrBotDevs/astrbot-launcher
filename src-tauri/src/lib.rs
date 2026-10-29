@@ -212,6 +212,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+
             if matches!(event, tauri::RunEvent::Exit) {
                 let state: tauri::State<'_, AppState> = app_handle.state();
                 // Persist tracked instance IDs if enabled
