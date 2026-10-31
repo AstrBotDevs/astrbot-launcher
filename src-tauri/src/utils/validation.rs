@@ -7,13 +7,15 @@ pub(crate) const INSTANCE_ID_ALPHABET: [char; 36] = [
     'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
 ];
 
+/// Keep IDs within one child path component; naming rules belong to the OS.
 pub(crate) fn validate_instance_id(instance_id: &str) -> Result<()> {
-    let is_nanoid = instance_id.len() == INSTANCE_ID_LENGTH
-        && instance_id
-            .bytes()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
-    if !is_nanoid && uuid::Uuid::parse_str(instance_id).is_err() {
-        return Err(AppError::other("Invalid instance id"));
+    // Windows can normalize trailing spaces/dots into an empty or parent path.
+    // Reject these aliases as well, even when running on another platform.
+    let normalized = instance_id.trim_end_matches(' ');
+    if normalized.trim_end_matches('.').is_empty() || instance_id.contains(['/', '\\', ':', '\0']) {
+        return Err(AppError::other(
+            "Instance id must be a single child directory name",
+        ));
     }
     Ok(())
 }
