@@ -53,6 +53,9 @@ function ActionRow({
 }
 
 interface TroubleshootingCardProps {
+  useShortInstanceId: boolean;
+  useShortInstanceIdSaving: boolean;
+  onUseShortInstanceIdChange: (checked: boolean) => void;
   uvInstalled: boolean;
   clearUvCacheLoading: boolean;
   onOpenClearUvCache: () => void;
@@ -85,6 +88,9 @@ interface TroubleshootingCardProps {
 }
 
 export function TroubleshootingCard({
+  useShortInstanceId,
+  useShortInstanceIdSaving,
+  onUseShortInstanceIdChange,
   uvInstalled,
   clearUvCacheLoading,
   onOpenClearUvCache,
@@ -127,6 +133,20 @@ export function TroubleshootingCard({
         </div>
         <Text type="secondary" style={{ display: 'block', marginTop: 8, marginLeft: 140 }}>
           开启后启动实例时不再合并系统 PATH
+        </Text>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Text style={{ width: 140 }}>新实例使用NanoID:</Text>
+          <Switch
+            checked={useShortInstanceId}
+            loading={useShortInstanceIdSaving}
+            onChange={onUseShortInstanceIdChange}
+          />
+        </div>
+        <Text type="secondary" style={{ display: 'block', marginTop: 8, marginLeft: 140 }}>
+          若经常遇到路径过长导致的安装或运行失败，可开启此项以缓解。仅对之后新建的实例生效，已有实例不受影响。
         </Text>
       </div>
 

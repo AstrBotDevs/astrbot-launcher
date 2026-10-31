@@ -30,6 +30,7 @@ export interface AppConfig {
   check_instance_update: boolean;
   persist_instance_state: boolean;
   ignore_external_path: boolean;
+  use_short_instance_id: boolean;
   lock_check_extension_whitelist: boolean;
   theme_preference: ThemePreference;
 }

@@ -13,7 +13,7 @@ use crate::config::{
 use crate::error::{AppError, Result};
 use crate::process::{InstanceRuntimeInfo, InstanceState, ProcessManager};
 use crate::utils::paths::{get_instance_core_dir, get_instance_dir, get_instance_venv_dir};
-use crate::utils::validation::validate_instance_id;
+use crate::utils::validation::{validate_instance_id, INSTANCE_ID_ALPHABET, INSTANCE_ID_LENGTH};
 
 fn ensure_version_installed(manifest: &AppManifest, version: &str) -> Result<()> {
     if manifest
@@ -119,18 +119,37 @@ pub fn create_instance(name: &str, version: &str, port: u16) -> Result<()> {
     let manifest = load_manifest()?;
     ensure_version_installed(&manifest, version)?;
 
-    let id = uuid::Uuid::new_v4().to_string();
-
-    let instance_dir = get_instance_dir(&id);
-    std::fs::create_dir_all(&instance_dir)
-        .map_err(|e| AppError::io(format!("Failed to create instance dir: {}", e)))?;
-
+    let use_short_instance_id = crate::config::load_config()?.use_short_instance_id;
     let name = name.to_string();
     let version = version.to_string();
     with_manifest_mut(move |manifest| {
         ensure_version_installed(manifest, &version)?;
 
-        let key = id;
+        let instances_dir = crate::utils::paths::get_data_dir().join("instances");
+        std::fs::create_dir_all(&instances_dir)
+            .map_err(|e| AppError::io(format!("Failed to create instances dir: {}", e)))?;
+        // Check both manifest entries and orphan directories. Exclusive creation
+        // also prevents reusing an existing directory on Windows.
+        let key = loop {
+            let id = if use_short_instance_id {
+                nanoid::nanoid!(INSTANCE_ID_LENGTH, &INSTANCE_ID_ALPHABET)
+            } else {
+                uuid::Uuid::new_v4().to_string()
+            };
+            if manifest.instances.contains_key(&id) {
+                continue;
+            }
+            match std::fs::create_dir(instances_dir.join(&id)) {
+                Ok(()) => break id,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => {
+                    return Err(AppError::io(format!(
+                        "Failed to create instance dir: {}",
+                        e
+                    )));
+                }
+            }
+        };
         let instance = InstanceConfig {
             name,
             version,

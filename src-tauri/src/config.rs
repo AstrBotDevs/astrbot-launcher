@@ -65,6 +65,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub ignore_external_path: bool,
     #[serde(default)]
+    pub use_short_instance_id: bool,
+    #[serde(default)]
     pub lock_check_extension_whitelist: bool,
     #[serde(default)]
     pub theme_preference: ThemePreference,
@@ -88,6 +90,7 @@ impl Default for AppConfig {
             check_instance_update: true,
             persist_instance_state: false,
             ignore_external_path: false,
+            use_short_instance_id: false,
             lock_check_extension_whitelist: false,
             theme_preference: ThemePreference::System,
         }
