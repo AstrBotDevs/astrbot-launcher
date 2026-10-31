@@ -72,6 +72,41 @@ fn validate_window_state() {
     }
 }
 
+/// Shows and focuses the main window, recreating it if it was destroyed.
+///
+/// On macOS the process keeps running after the main window is closed
+/// (when `close_to_tray` is disabled), so the window may no longer exist
+/// when the app is re-activated.
+fn show_or_recreate_main_window(app_handle: &tauri::AppHandle) {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return;
+    }
+
+    if let Err(e) = recreate_main_window(app_handle) {
+        log::error!("Failed to recreate main window: {}", e);
+    }
+}
+
+fn recreate_main_window(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
+    let window_config = app_handle
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+        .unwrap_or_default();
+
+    let window = tauri::WebviewWindowBuilder::from_config(app_handle, &window_config)?.build()?;
+    setup::configure_main_window(&window);
+    let _ = window.show();
+    let _ = window.set_focus();
+    Ok(())
+}
+
 #[allow(clippy::expect_used)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -102,10 +137,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let window = app.get_webview_window("main").expect("no main window");
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
+            show_or_recreate_main_window(app);
         }))
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -212,6 +244,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = &event {
+                show_or_recreate_main_window(app_handle);
+            }
+
             if matches!(event, tauri::RunEvent::Exit) {
                 let state: tauri::State<'_, AppState> = app_handle.state();
                 // Persist tracked instance IDs if enabled
