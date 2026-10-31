@@ -11,25 +11,8 @@ use crate::utils::log_bus as log_channel;
 pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
     hide_window_for_autostart(app);
 
-    #[cfg(target_os = "linux")]
-    if let Some(main_webview) = app.get_webview_window("main") {
-        let _ = main_webview.with_webview(|webview| {
-            if let Some(settings) = webview.inner().settings() {
-                settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
-            }
-        });
-    }
-
-    #[cfg(not(target_os = "macos"))]
     if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.set_decorations(false);
-    }
-
-    if let Some(main_window) = app.get_webview_window("main") {
-        let _ = main_window.set_min_size(Some(tauri::LogicalSize::new(
-            crate::MIN_WINDOW_WIDTH as f64,
-            crate::MIN_WINDOW_HEIGHT as f64,
-        )));
+        configure_main_window(&main_window);
     }
 
     let state: tauri::State<'_, AppState> = app.state();
@@ -41,6 +24,23 @@ pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error:
     restore_instances(app);
 
     Ok(())
+}
+
+pub fn configure_main_window(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    let _ = window.with_webview(|webview| {
+        if let Some(settings) = webview.inner().settings() {
+            settings.set_hardware_acceleration_policy(HardwareAccelerationPolicy::Never);
+        }
+    });
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = window.set_decorations(false);
+
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(
+        crate::MIN_WINDOW_WIDTH as f64,
+        crate::MIN_WINDOW_HEIGHT as f64,
+    )));
 }
 
 fn hide_window_for_autostart(app: &tauri::App) {
