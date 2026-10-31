@@ -42,6 +42,8 @@ export const api = {
     invoke<void>('save_check_instance_update', { checkInstanceUpdate }),
   savePersistInstanceState: (persistInstanceState: boolean) =>
     invoke<void>('save_persist_instance_state', { persistInstanceState }),
+  saveUseShortInstanceId: (useShortInstanceId: boolean) =>
+    invoke<void>('save_use_short_instance_id', { useShortInstanceId }),
   saveIgnoreExternalPath: (ignoreExternalPath: boolean) =>
     invoke<void>('save_ignore_external_path', { ignoreExternalPath }),
   saveMainlandAcceleration: (mainlandAcceleration: boolean) =>

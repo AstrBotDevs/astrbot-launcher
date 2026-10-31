@@ -23,6 +23,7 @@ export const OPERATION_KEYS = {
   advancedSaveAutostartMinimizeToTray: 'adv:save-autostart-minimize-to-tray',
   advancedSaveCheckInstanceUpdate: 'adv:save-check-instance-update',
   advancedSavePersistInstanceState: 'adv:save-persist-instance-state',
+  advancedSaveUseShortInstanceId: 'adv:save-use-short-instance-id',
   advancedSaveIgnoreExternalPath: 'adv:save-ignore-external-path',
   advancedSaveMainlandAcceleration: 'adv:save-mainland-acceleration',
   advancedSaveAutostart: 'adv:save-autostart',

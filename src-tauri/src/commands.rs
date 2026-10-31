@@ -287,6 +287,11 @@ define_save_config_command!(
     persist_instance_state
 );
 define_save_config_command!(
+    save_use_short_instance_id,
+    use_short_instance_id: bool,
+    use_short_instance_id
+);
+define_save_config_command!(
     save_ignore_external_path,
     ignore_external_path: bool,
     ignore_external_path

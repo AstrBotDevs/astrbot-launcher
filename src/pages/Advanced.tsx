@@ -187,6 +187,14 @@ export default function Advanced() {
     });
   };
 
+  const handleUseShortInstanceIdChange = async (checked: boolean) => {
+    await handleSaveSetting({
+      key: OPERATION_KEYS.advancedSaveUseShortInstanceId,
+      save: () => api.saveUseShortInstanceId(checked),
+      successMessage: '设置已保存',
+    });
+  };
+
   const handleIgnoreExternalPathChange = async (checked: boolean) => {
     await handleSaveSetting({
       key: OPERATION_KEYS.advancedSaveIgnoreExternalPath,
@@ -739,6 +747,11 @@ export default function Advanced() {
       />
 
       <TroubleshootingCard
+        useShortInstanceId={config?.use_short_instance_id ?? false}
+        useShortInstanceIdSaving={
+          operations[OPERATION_KEYS.advancedSaveUseShortInstanceId] || false
+        }
+        onUseShortInstanceIdChange={handleUseShortInstanceIdChange}
         uvInstalled={uvInstalled}
         clearUvCacheLoading={clearUvCacheLoading}
         onOpenClearUvCache={() => setConfirmModal('clearUvCache')}
