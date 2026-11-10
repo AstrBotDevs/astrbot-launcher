@@ -7,6 +7,8 @@ mod download;
 mod error;
 mod github;
 mod instance;
+#[cfg(target_os = "macos")]
+mod macos_window;
 mod migration;
 mod network_config;
 mod platform;
@@ -79,14 +81,33 @@ fn validate_window_state() {
 /// when the app is re-activated.
 fn show_or_recreate_main_window(app_handle: &tauri::AppHandle) {
     if let Some(window) = app_handle.get_webview_window("main") {
+        #[cfg(not(target_os = "macos"))]
         let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
+        show_main_window(&window);
         return;
     }
 
     if let Err(e) = recreate_main_window(app_handle) {
         log::error!("Failed to recreate main window: {}", e);
+    }
+}
+
+fn show_main_window(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let window_to_show = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            macos_window::cancel_pending_hide();
+            let _ = window_to_show.unminimize();
+            let _ = window_to_show.show();
+            let _ = window_to_show.set_focus();
+        });
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window.show();
+        let _ = window.set_focus();
     }
 }
 
@@ -102,8 +123,7 @@ fn recreate_main_window(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
 
     let window = tauri::WebviewWindowBuilder::from_config(app_handle, &window_config)?.build()?;
     setup::configure_main_window(&window);
-    let _ = window.show();
-    let _ = window.set_focus();
+    show_main_window(&window);
     Ok(())
 }
 
@@ -178,10 +198,22 @@ pub fn run() {
             }
         })
         .setup(|app| setup::on_setup(app))
-        .on_window_event(move |window, event| {
+        .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Destroyed) {
+                macos_window::cancel_pending_hide();
+            }
+
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if load_config().map(|c| c.close_to_tray).unwrap_or(true) {
                     api.prevent_close();
+                    #[cfg(target_os = "macos")]
+                    if window.label() == "main" {
+                        if let Err(error) = macos_window::hide_after_fullscreen(window) {
+                            log::warn!("Failed to hide the main window: {error}");
+                        }
+                        return;
+                    }
                     let _ = window.hide();
                 }
             }

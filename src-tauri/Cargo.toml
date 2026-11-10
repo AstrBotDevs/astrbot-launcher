@@ -60,7 +60,12 @@ nanoid = "0.5"
 libc = "0.2.182"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+dispatch2 = "0.3.1"
 libproc = "0.14.11"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSResponder", "NSWindow"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSNotification", "NSOperation", "NSString", "block2"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2"

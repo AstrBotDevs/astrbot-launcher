@@ -88,7 +88,9 @@ dependencies = [
 name = "astrbot-launcher"
 version = "0.3.14"
 dependencies = [
+ "block2",
  "chrono",
+ "dispatch2",
  "dirs 6.0.0",
  "flate2",
  "futures-util",
@@ -96,6 +98,9 @@ dependencies = [
  "libproc",
  "log",
  "nanoid",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "once_cell",
  "portpicker",
  "redb",
