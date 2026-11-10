@@ -9,6 +9,9 @@ use crate::tray;
 use crate::utils::log_bus as log_channel;
 
 pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    crate::macos_window::setup();
+
     hide_window_for_autostart(app);
 
     if let Some(main_window) = app.get_webview_window("main") {
@@ -57,6 +60,10 @@ fn hide_window_for_autostart(app: &tauri::App) {
     }
 
     if let Some(main_window) = app.get_webview_window("main") {
+        #[cfg(target_os = "macos")]
+        crate::macos_window::hide(&main_window.as_ref().window());
+
+        #[cfg(not(target_os = "macos"))]
         let _ = main_window.hide();
     }
 }
