@@ -209,9 +209,7 @@ pub fn run() {
                     api.prevent_close();
                     #[cfg(target_os = "macos")]
                     if window.label() == "main" {
-                        if let Err(error) = macos_window::hide_after_fullscreen(window) {
-                            log::warn!("Failed to hide the main window: {error}");
-                        }
+                        macos_window::hide(window);
                         return;
                     }
                     let _ = window.hide();

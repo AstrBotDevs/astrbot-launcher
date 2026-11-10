@@ -56,12 +56,24 @@ pub fn setup() {
     }
 }
 
-pub fn hide_after_fullscreen(window: &tauri::Window) -> tauri::Result<()> {
+pub fn hide(window: &tauri::Window) {
+    match defer_hide_until_fullscreen_exit(window) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(error) => log::warn!("Could not defer hiding the main window: {error}"),
+    }
+
+    if let Err(error) = window.hide() {
+        log::warn!("Failed to hide the main window: {error}");
+    }
+}
+
+fn defer_hide_until_fullscreen_exit(window: &tauri::Window) -> tauri::Result<bool> {
     let Some(main_thread) = MainThreadMarker::new() else {
         return Err(std::io::Error::other("Window hiding requires the macOS main thread").into());
     };
     if PENDING_HIDE.with_borrow(Option::is_some) {
-        return Ok(());
+        return Ok(true);
     }
 
     // Tao can report windowed mode as soon as it requests an exit. The native
@@ -71,18 +83,11 @@ pub fn hide_after_fullscreen(window: &tauri::Window) -> tauri::Result<()> {
         .ok_or_else(|| std::io::Error::other("Missing native window"))?;
     let fullscreen = window.is_fullscreen()?;
     if !fullscreen && !is_native_fullscreen(&native_window) {
-        return window.hide();
+        return Ok(false);
     }
 
     let request = Arc::new(MainThreadBound::new(native_window, main_thread));
     let timeout_request = Arc::downgrade(&request);
-    PENDING_HIDE.replace(Some(request));
-    if fullscreen {
-        window
-            .set_fullscreen(false)
-            .inspect_err(|_| cancel_pending_hide())?;
-    }
-
     // AppKit may refuse the transition without delivering an exit notification.
     // Only the current request may act, even after a reopen and another close.
     let deadline = DispatchTime::NOW.time(FULLSCREEN_EXIT_TIMEOUT_NS);
@@ -92,8 +97,27 @@ pub fn hide_after_fullscreen(window: &tauri::Window) -> tauri::Result<()> {
                 finish_hide(&request, true);
             }
         })
-        .inspect_err(|_| cancel_pending_hide())
-        .map_err(|_| std::io::Error::other("Failed to schedule fullscreen exit timeout").into())
+        .map_err(|_| std::io::Error::other("Failed to schedule fullscreen exit timeout"))?;
+
+    if fullscreen {
+        let window = window.clone();
+        let exit_request = Arc::downgrade(&request);
+        // Window-state restoration can already have queued a fullscreen entry.
+        // Let Tao start it before asking Tao to exit.
+        DispatchQueue::main().exec_async(move || {
+            if !exit_request
+                .upgrade()
+                .is_some_and(|request| is_current_hide(&request))
+            {
+                return;
+            }
+            if let Err(error) = window.set_fullscreen(false) {
+                log::warn!("Failed to request fullscreen exit: {error}");
+            }
+        });
+    }
+    PENDING_HIDE.replace(Some(request));
+    Ok(true)
 }
 
 pub fn cancel_pending_hide() {
@@ -104,11 +128,7 @@ fn finish_hide(request: &PendingHide, timed_out: bool) {
     let Some(main_thread) = MainThreadMarker::new() else {
         return;
     };
-    if !PENDING_HIDE.with_borrow(|pending| {
-        pending
-            .as_ref()
-            .is_some_and(|pending| Arc::ptr_eq(pending, request))
-    }) {
+    if !is_current_hide(request) {
         return;
     }
 
@@ -121,6 +141,14 @@ fn finish_hide(request: &PendingHide, timed_out: bool) {
         log::warn!("The main window did not exit fullscreen; attempting to minimize it");
         window.miniaturize(None);
     }
+}
+
+fn is_current_hide(request: &PendingHide) -> bool {
+    PENDING_HIDE.with_borrow(|pending| {
+        pending
+            .as_ref()
+            .is_some_and(|pending| Arc::ptr_eq(pending, request))
+    })
 }
 
 fn is_native_fullscreen(window: &NSWindow) -> bool {
