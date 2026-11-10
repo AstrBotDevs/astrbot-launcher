@@ -30,7 +30,10 @@ where
             .by_index(index)
             .map_err(|e| AppError::io(e.to_string()))?;
 
-        let raw_name = entry.name().to_string();
+        let raw_name = entry
+            .name()
+            .map_err(|e| AppError::io(e.to_string()))?
+            .into_owned();
 
         if parse_entry_rel_path(&raw_name).is_none() {
             return Err(AppError::io(format!(
@@ -74,7 +77,14 @@ pub(crate) fn extract_zip_flat(archive_path: &Path, dest_dir: &Path) -> Result<(
     let top_dir = {
         let file = fs::File::open(archive_path).map_err(|e| AppError::io(e.to_string()))?;
         let archive = zip::ZipArchive::new(file).map_err(|e| AppError::io(e.to_string()))?;
-        detect_common_top_dir(archive.file_names())
+        let file_names = archive
+            .file_names()
+            .map(|name| {
+                name.map(|name| name.into_owned())
+                    .map_err(|e| AppError::io(e.to_string()))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        detect_common_top_dir(file_names.iter().map(String::as_str))
     };
 
     extract_zip_mapped(archive_path, dest_dir, |raw_path| {
