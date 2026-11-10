@@ -86,12 +86,12 @@ dependencies = [
 
 [[package]]
 name = "astrbot-launcher"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "block2",
  "chrono",
- "dispatch2",
  "dirs 6.0.0",
+ "dispatch2",
  "flate2",
  "futures-util",
  "libc",
