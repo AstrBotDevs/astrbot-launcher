@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { GitHubRelease, AppSnapshot, ThemePreference } from './types';
-import type { DataDirChangeResult, RepairPreserveScope } from './types';
+import type { DataDirChangeResult, RepairPreserveScope, WebuiSession } from './types';
 
 type LockCheckRequest =
   | {
@@ -130,6 +130,8 @@ export const api = {
   stopInstance: (instanceId: string) => invoke<void>('stop_instance', { instanceId }),
   restartInstance: (instanceId: string) => invoke<number>('restart_instance', { instanceId }),
   getInstancePort: (instanceId: string) => invoke<number>('get_instance_port', { instanceId }),
+  getInstanceWebuiSession: (instanceId: string) =>
+    invoke<WebuiSession>('get_instance_webui_session', { instanceId }),
 
   // ========================================
   // Backup

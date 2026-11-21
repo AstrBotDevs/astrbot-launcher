@@ -77,6 +77,15 @@ export interface DataDirChangeResult {
   new_dir: string;
 }
 
+export interface WebuiSession {
+  port: number;
+  /** True when the instance was launched with ASTRBOT_DESKTOP_MANAGED=1. */
+  desktop_managed: boolean;
+  /** Present only when desktop session exchange succeeded. */
+  token: string | null;
+  username: string | null;
+}
+
 export type InstanceState = 'stopped' | 'starting' | 'running' | 'stopping';
 
 export interface InstanceStatus {

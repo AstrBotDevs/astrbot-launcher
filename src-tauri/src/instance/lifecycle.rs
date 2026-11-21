@@ -3,6 +3,7 @@
 //! These functions do not interact with `ProcessManager`. On success they return
 //! a `LaunchResult`; the coordinator handles all state transitions.
 
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
@@ -14,6 +15,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use super::crud::{is_dashboard_enabled, normalize_instance_host};
 use super::deploy::{deploy_instance, emit_progress};
+use super::webui_session::{
+    check_desktop_session_eligibility, is_desktop_webui_validation_failure_log,
+    DesktopSessionEligibility,
+};
 use crate::component;
 use crate::config::{load_config, load_manifest};
 use crate::error::{AppError, Result};
@@ -126,8 +131,46 @@ pub struct LaunchResult {
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
+    pub desktop_session_secret: Option<String>,
     #[cfg(target_os = "windows")]
     pub job_object: crate::process::JobObject,
+}
+
+enum StartupSignal {
+    Started,
+    DesktopWebuiValidationFailed,
+}
+
+enum SpawnAttemptOutcome {
+    Started(LaunchResult),
+    DesktopWebuiValidationFailed,
+}
+
+struct SpawnContext<'a> {
+    instance_id: &'a str,
+    instance_name: &'a str,
+    core_dir: &'a Path,
+    venv_dir: &'a Path,
+    venv_python: &'a Path,
+    main_py: &'a Path,
+    host: &'a str,
+    port: u16,
+    dashboard_enabled: bool,
+    new_path: &'a OsStr,
+    uv_cache_dir: &'a Path,
+    default_index: &'a str,
+    nodejs_env_vars: &'a [(OsString, OsString)],
+    proxy_env_vars: &'a [(OsString, OsString)],
+    app_handle: &'a AppHandle,
+}
+
+/// Generate a 64-hex-char secret (>= 32 chars required by AstrBot core).
+fn generate_desktop_session_secret() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
 }
 
 fn cancel_startup_due_to_shutdown(
@@ -280,31 +323,103 @@ pub async fn launch_instance(
     std::fs::create_dir_all(&uv_cache_dir)
         .map_err(|e| AppError::io(format!("Failed to create uv cache dir: {}", e)))?;
 
-    let mut cmd = Command::new(&venv_python);
-    cmd.arg(&main_py)
-        .current_dir(&core_dir)
+    let ctx = SpawnContext {
+        instance_id,
+        instance_name: &instance_config.name,
+        core_dir: &core_dir,
+        venv_dir: &venv_dir,
+        venv_python: &venv_python,
+        main_py: &main_py,
+        host: &host,
+        port,
+        dashboard_enabled,
+        new_path: &new_path,
+        uv_cache_dir: &uv_cache_dir,
+        default_index: &default_index,
+        nodejs_env_vars: &nodejs_env_vars,
+        proxy_env_vars: &proxy_env_vars,
+        app_handle,
+    };
+
+    match check_desktop_session_eligibility(&core_dir, &host, dashboard_enabled) {
+        DesktopSessionEligibility::Eligible => {
+            let secret = generate_desktop_session_secret();
+            match spawn_and_wait_instance(&ctx, Some(secret), &mut shutdown_signal).await? {
+                SpawnAttemptOutcome::Started(launch) => Ok(launch),
+                SpawnAttemptOutcome::DesktopWebuiValidationFailed => {
+                    log::warn!(
+                        "Instance {} WebUI validation failed in desktop-managed mode; automatically retrying in standard mode",
+                        instance_id
+                    );
+                    emit_progress(
+                        app_handle,
+                        instance_id,
+                        "start",
+                        "检测到 WebUI 版本不兼容，正在以兼容模式启动...",
+                        95,
+                    );
+                    match spawn_and_wait_instance(&ctx, None, &mut shutdown_signal).await? {
+                        SpawnAttemptOutcome::Started(launch) => Ok(launch),
+                        SpawnAttemptOutcome::DesktopWebuiValidationFailed => {
+                            Err(AppError::process(
+                                "Unexpected desktop WebUI validation failure in standard mode",
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+        DesktopSessionEligibility::Fallback(reason) => {
+            log::info!(
+                "Instance {} launching in standard mode ({})",
+                instance_id,
+                reason
+            );
+            match spawn_and_wait_instance(&ctx, None, &mut shutdown_signal).await? {
+                SpawnAttemptOutcome::Started(launch) => Ok(launch),
+                SpawnAttemptOutcome::DesktopWebuiValidationFailed => Err(AppError::process(
+                    "Unexpected desktop WebUI validation failure in standard mode",
+                )),
+            }
+        }
+    }
+}
+
+fn build_instance_command(ctx: &SpawnContext<'_>, desktop_session_secret: Option<&str>) -> Command {
+    let mut cmd = Command::new(ctx.venv_python);
+    cmd.arg(ctx.main_py)
+        .current_dir(ctx.core_dir)
         .env("ASTRBOT_LAUNCHER", "1")
-        .env("DASHBOARD_HOST", &host)
-        .env("DASHBOARD_PORT", port.to_string())
+        .env("DASHBOARD_HOST", ctx.host)
+        .env("DASHBOARD_PORT", ctx.port.to_string())
         .env("PYTHONUNBUFFERED", "1")
         .env("PYTHONIOENCODING", "utf-8")
-        .env("VIRTUAL_ENV", &venv_dir)
-        .env("PATH", new_path)
+        .env("VIRTUAL_ENV", ctx.venv_dir)
+        .env("PATH", ctx.new_path)
         // Make child uv/uvx behavior align with launcher's uv sync policy.
         .env("UV_NO_MANAGED_PYTHON", "1")
         .env("UV_PYTHON_DOWNLOADS", "never")
-        .env("UV_PYTHON", &venv_python)
-        .env("UV_CACHE_DIR", &uv_cache_dir)
-        .env("UV_DEFAULT_INDEX", default_index)
+        .env("UV_PYTHON", ctx.venv_python)
+        .env("UV_CACHE_DIR", ctx.uv_cache_dir)
+        .env("UV_DEFAULT_INDEX", ctx.default_index)
         .env_remove("PYTHONHOME")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
+    if let Some(secret) = desktop_session_secret {
+        // Enables AstrBot's passwordless `/api/v1/auth/desktop-session` login.
+        cmd.env("ASTRBOT_DESKTOP_MANAGED", "1")
+            .env("ASTRBOT_DESKTOP_SESSION_SECRET", secret);
+    } else {
+        cmd.env_remove("ASTRBOT_DESKTOP_MANAGED")
+            .env_remove("ASTRBOT_DESKTOP_SESSION_SECRET");
+    }
+
     // Inject Node.js environment variables (NODE_PATH, NPM_CONFIG_*, etc.)
-    for (key, val) in &nodejs_env_vars {
+    for (key, val) in ctx.nodejs_env_vars {
         cmd.env(key, val);
     }
-    proxy::apply_proxy_env(&mut cmd, &proxy_env_vars);
+    proxy::apply_proxy_env(&mut cmd, ctx.proxy_env_vars);
 
     #[cfg(target_os = "windows")]
     {
@@ -317,8 +432,37 @@ pub async fn launch_instance(
         cmd.process_group(0);
     }
 
+    cmd
+}
+
+async fn terminate_failed_desktop_attempt(
+    instance_id: &str,
+    pid: u32,
+    executable_path: &Path,
+    exit_rx: &mut oneshot::Receiver<std::result::Result<ExitStatus, String>>,
+) {
+    if can_signal_expected_process(pid, executable_path) {
+        if let Err(kill_err) = force_kill(pid) {
+            log::warn!(
+                "Failed to kill desktop-fallback instance {}: {}",
+                instance_id,
+                kill_err
+            );
+        }
+    }
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), exit_rx).await;
+}
+
+async fn spawn_and_wait_instance(
+    ctx: &SpawnContext<'_>,
+    desktop_session_secret: Option<String>,
+    shutdown_signal: &mut watch::Receiver<bool>,
+) -> Result<SpawnAttemptOutcome> {
+    let desktop_managed = desktop_session_secret.is_some();
+    let mut cmd = build_instance_command(ctx, desktop_session_secret.as_deref());
+
     let mut child = cmd.spawn().map_err(|e| {
-        log::error!("Failed to spawn instance {}: {}", instance_id, e);
+        log::error!("Failed to spawn instance {}: {}", ctx.instance_id, e);
         AppError::process(format!("Failed to start instance: {}", e))
     })?;
 
@@ -344,18 +488,29 @@ pub async fn launch_instance(
         .take()
         .ok_or_else(|| AppError::process("Failed to capture stderr"))?;
 
-    let instance_id_stderr = instance_id.to_string();
+    // Unified startup / fallback detection via log output
+    let (startup_tx, mut startup_rx) = mpsc::unbounded_channel::<StartupSignal>();
+    // Keep one sender in scope so receiver does not close early if streams end.
+    let _startup_tx_guard = startup_tx.clone();
+
+    let instance_id_stderr = ctx.instance_id.to_string();
+    let startup_tx_stderr = startup_tx.clone();
     let mut stderr_reader = BufReader::new(stderr).lines();
 
-    // Log stderr in background
+    // Log stderr in background (and detect desktop WebUI validation failure)
     tokio::spawn(async move {
+        let mut fallback_sent = false;
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             log_channel::emit_log(&instance_id_stderr, "error", &line);
+            if desktop_managed && !fallback_sent && is_desktop_webui_validation_failure_log(&line) {
+                let _ = startup_tx_stderr.send(StartupSignal::DesktopWebuiValidationFailed);
+                fallback_sent = true;
+            }
         }
     });
 
     // Wait for child process in background and report early-exit signal
-    let instance_id_wait = instance_id.to_string();
+    let instance_id_wait = ctx.instance_id.to_string();
     let (exit_tx, mut exit_rx) = oneshot::channel::<std::result::Result<ExitStatus, String>>();
     tokio::spawn(async move {
         let wait_result = child
@@ -373,17 +528,14 @@ pub async fn launch_instance(
         let _ = exit_tx.send(wait_result);
     });
 
-    // Unified startup detection via log output
-    let (startup_tx, mut startup_rx) = mpsc::unbounded_channel::<()>();
-    // Keep one sender in scope so receiver does not close early if stdout ends.
-    let _startup_tx_guard = startup_tx.clone();
-    let instance_id_stdout = instance_id.to_string();
-    let instance_name = instance_config.name.clone();
-    let app_handle_stdout = app_handle.clone();
+    let instance_id_stdout = ctx.instance_id.to_string();
+    let instance_name = ctx.instance_name.to_string();
+    let app_handle_stdout = ctx.app_handle.clone();
     let mut stdout_reader = BufReader::new(stdout).lines();
 
     tokio::spawn(async move {
         let mut startup_sent = false;
+        let mut fallback_sent = false;
         let mut credentials_detector = DefaultCredentialsDetector::default();
         while let Ok(Some(line)) = stdout_reader.next_line().await {
             log_channel::emit_log(&instance_id_stdout, "info", &line);
@@ -392,50 +544,74 @@ pub async fn launch_instance(
             {
                 let _ = app_handle_stdout.emit("default-credentials-detected", credentials);
             }
+            if desktop_managed && !fallback_sent && is_desktop_webui_validation_failure_log(&line) {
+                let _ = startup_tx.send(StartupSignal::DesktopWebuiValidationFailed);
+                fallback_sent = true;
+            }
             if !startup_sent && is_startup_completion_log(&line) {
-                let _ = startup_tx.send(());
+                let _ = startup_tx.send(StartupSignal::Started);
                 startup_sent = true;
             }
         }
     });
 
-    // Wait for startup signal, process early-exit, or timeout.
+    // Wait for startup signal, desktop fallback signal, process early-exit, or timeout.
     let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(STARTUP_TIMEOUT_SECS));
     tokio::pin!(timeout);
     tokio::select! {
         biased;
         _ = shutdown_signal.changed() => {
             if *shutdown_signal.borrow() {
-                cancel_startup_due_to_shutdown(instance_id, pid, &executable_path)
+                cancel_startup_due_to_shutdown(ctx.instance_id, pid, &executable_path)
+                    .map(SpawnAttemptOutcome::Started)
             } else {
                 Err(AppError::process(format!(
-                    "Cannot start instance {instance_id}: application is shutting down"
+                    "Cannot start instance {}: application is shutting down",
+                    ctx.instance_id
                 )))
             }
         }
         startup_signal = startup_rx.recv() => {
-            if startup_signal.is_none() {
-                log::error!("Instance {} startup log stream closed unexpectedly", instance_id);
-                return Err(AppError::process(
-                    "Failed to detect startup completion from log stream",
-                ));
+            match startup_signal {
+                None => {
+                    log::error!(
+                        "Instance {} startup log stream closed unexpectedly",
+                        ctx.instance_id
+                    );
+                    Err(AppError::process(
+                        "Failed to detect startup completion from log stream",
+                    ))
+                }
+                Some(StartupSignal::DesktopWebuiValidationFailed) => {
+                    terminate_failed_desktop_attempt(
+                        ctx.instance_id,
+                        pid,
+                        &executable_path,
+                        &mut exit_rx,
+                    )
+                    .await;
+                    Ok(SpawnAttemptOutcome::DesktopWebuiValidationFailed)
+                }
+                Some(StartupSignal::Started) => {
+                    log::info!(
+                        "Instance {} started (pid: {}, port: {}, desktop_managed: {})",
+                        ctx.instance_id,
+                        pid,
+                        ctx.port,
+                        desktop_managed
+                    );
+                    emit_progress(ctx.app_handle, ctx.instance_id, "done", "实例已启动", 100);
+                    Ok(SpawnAttemptOutcome::Started(LaunchResult {
+                        pid,
+                        executable_path,
+                        port: ctx.port,
+                        dashboard_enabled: ctx.dashboard_enabled,
+                        desktop_session_secret,
+                        #[cfg(target_os = "windows")]
+                        job_object,
+                    }))
+                }
             }
-
-            log::info!(
-                "Instance {} started (pid: {}, port: {})",
-                instance_id,
-                pid,
-                port
-            );
-            emit_progress(app_handle, instance_id, "done", "实例已启动", 100);
-            Ok(LaunchResult {
-                pid,
-                executable_path,
-                port,
-                dashboard_enabled,
-                #[cfg(target_os = "windows")]
-                job_object,
-            })
         }
         exit_result = &mut exit_rx => {
             let detail = match exit_result {
@@ -449,11 +625,12 @@ pub async fn launch_instance(
                 ),
                 Err(_) => "Instance exited before startup completed".to_string(),
             };
-            log::error!("Instance {} failed to start: {}", instance_id, detail);
+            log::error!("Instance {} failed to start: {}", ctx.instance_id, detail);
             Err(AppError::process(detail))
         }
         _ = &mut timeout => {
-            cancel_startup_due_to_timeout(instance_id, pid, &executable_path)
+            cancel_startup_due_to_timeout(ctx.instance_id, pid, &executable_path)
+                .map(SpawnAttemptOutcome::Started)
         }
     }
 }

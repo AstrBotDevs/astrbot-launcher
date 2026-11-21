@@ -676,6 +676,36 @@ pub async fn get_instance_port(instance_id: String, state: State<'_, AppState>) 
         .ok_or_else(AppError::instance_not_running)
 }
 
+/// Returns the WebUI port plus a passwordless dashboard session when the
+/// instance was launched in desktop-managed mode and supports desktop sessions.
+#[tauri::command]
+pub async fn get_instance_webui_session(
+    instance_id: String,
+    state: State<'_, AppState>,
+) -> Result<instance::WebuiSession> {
+    let (port, secret) = state
+        .process_manager
+        .get_port_and_session_secret(&instance_id)
+        .ok_or_else(AppError::instance_not_running)?;
+
+    let Some(secret) = secret else {
+        return Ok(instance::WebuiSession {
+            port,
+            desktop_managed: false,
+            token: None,
+            username: None,
+        });
+    };
+
+    let session = instance::fetch_desktop_session(port, &secret).await;
+    Ok(instance::WebuiSession {
+        port,
+        desktop_managed: true,
+        token: session.as_ref().map(|(token, _)| token.clone()),
+        username: session.map(|(_, username)| username),
+    })
+}
+
 // === Backup ===
 
 #[tauri::command]
