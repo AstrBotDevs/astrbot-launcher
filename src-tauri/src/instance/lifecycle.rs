@@ -6,6 +6,9 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter as _};
@@ -37,6 +40,9 @@ use crate::utils::validation::validate_instance_id;
 use crate::process::STARTUP_TIMEOUT_SECS;
 
 const STARTUP_COMPLETION_MARKERS: &[&str] = &["AstrBot started.", "AstrBot 启动完成"];
+const DESKTOP_STARTUP_VALIDATION_SETTLE: Duration = Duration::from_millis(150);
+const DESKTOP_FALLBACK_EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+const DESKTOP_FALLBACK_UNSIGNALED_EXIT_TIMEOUT: Duration = Duration::from_millis(200);
 const DEFAULT_USERNAME_LABEL: &str = "Initial username";
 const DEFAULT_PASSWORD_LABEL: &str = "Initial password";
 const DEFAULT_EXPECTED_USERNAME: &str = "astrbot";
@@ -440,8 +446,12 @@ async fn terminate_failed_desktop_attempt(
     pid: u32,
     executable_path: &Path,
     exit_rx: &mut oneshot::Receiver<std::result::Result<ExitStatus, String>>,
-) {
-    if can_signal_expected_process(pid, executable_path) {
+    #[cfg(target_os = "windows")] job_object: crate::process::JobObject,
+) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    drop(job_object);
+
+    let killed = if can_signal_expected_process(pid, executable_path) {
         if let Err(kill_err) = force_kill(pid) {
             log::warn!(
                 "Failed to kill desktop-fallback instance {}: {}",
@@ -449,8 +459,118 @@ async fn terminate_failed_desktop_attempt(
                 kill_err
             );
         }
+        true
+    } else {
+        false
+    };
+
+    let wait_timeout = if killed || cfg!(target_os = "windows") {
+        DESKTOP_FALLBACK_EXIT_TIMEOUT
+    } else {
+        DESKTOP_FALLBACK_UNSIGNALED_EXIT_TIMEOUT
+    };
+
+    match tokio::time::timeout(wait_timeout, exit_rx).await {
+        Ok(Ok(Ok(_))) => Ok(()),
+        Ok(Ok(Err(wait_err))) => {
+            if is_expected_process_alive(pid, executable_path) {
+                Err(AppError::process(format!(
+                    "Failed to confirm exit of desktop-managed instance {} (PID {}) before fallback: {}",
+                    instance_id, pid, wait_err
+                )))
+            } else {
+                Ok(())
+            }
+        }
+        Ok(Err(_)) | Err(_) => {
+            if is_expected_process_alive(pid, executable_path) {
+                Err(AppError::process(format!(
+                    "Desktop-managed instance {} (PID {}) remained alive after termination attempt; aborting fallback",
+                    instance_id, pid
+                )))
+            } else {
+                Ok(())
+            }
+        }
     }
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), exit_rx).await;
+}
+
+enum DesktopStartupConfirmation {
+    Confirmed,
+    ValidationFailed,
+    ShutdownRequested,
+    ExitedEarly(
+        std::result::Result<std::result::Result<ExitStatus, String>, oneshot::error::RecvError>,
+    ),
+}
+
+fn format_early_exit_detail(
+    exit_result: std::result::Result<
+        std::result::Result<ExitStatus, String>,
+        oneshot::error::RecvError,
+    >,
+) -> String {
+    match exit_result {
+        Ok(Ok(status)) => format!(
+            "Instance exited before startup completed (exit status: {})",
+            status
+        ),
+        Ok(Err(wait_err)) => format!("Instance exited before startup completed ({})", wait_err),
+        Err(_) => "Instance exited before startup completed".to_string(),
+    }
+}
+
+/// Wait briefly after stdout reports startup completion so any pending stderr
+/// WebUI validation failure logs are observed before committing to desktop mode.
+async fn confirm_desktop_startup(
+    validation_failed: &AtomicBool,
+    startup_rx: &mut mpsc::UnboundedReceiver<StartupSignal>,
+    shutdown_signal: &mut watch::Receiver<bool>,
+    exit_rx: &mut oneshot::Receiver<std::result::Result<ExitStatus, String>>,
+) -> DesktopStartupConfirmation {
+    if validation_failed.load(Ordering::Acquire) {
+        return DesktopStartupConfirmation::ValidationFailed;
+    }
+    while let Ok(signal) = startup_rx.try_recv() {
+        if matches!(signal, StartupSignal::DesktopWebuiValidationFailed) {
+            return DesktopStartupConfirmation::ValidationFailed;
+        }
+    }
+
+    let settle = tokio::time::sleep(DESKTOP_STARTUP_VALIDATION_SETTLE);
+    tokio::pin!(settle);
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown_signal.changed() => {
+                if *shutdown_signal.borrow() {
+                    return DesktopStartupConfirmation::ShutdownRequested;
+                }
+            }
+            signal = startup_rx.recv() => {
+                if matches!(signal, Some(StartupSignal::DesktopWebuiValidationFailed)) {
+                    return DesktopStartupConfirmation::ValidationFailed;
+                }
+                if signal.is_none() {
+                    return if validation_failed.load(Ordering::Acquire) {
+                        DesktopStartupConfirmation::ValidationFailed
+                    } else {
+                        DesktopStartupConfirmation::Confirmed
+                    };
+                }
+            }
+            exit_result = &mut *exit_rx => {
+                return DesktopStartupConfirmation::ExitedEarly(exit_result);
+            }
+            _ = &mut settle => {
+                return if validation_failed.load(Ordering::Acquire) {
+                    DesktopStartupConfirmation::ValidationFailed
+                } else {
+                    DesktopStartupConfirmation::Confirmed
+                };
+            }
+        }
+    }
 }
 
 async fn spawn_and_wait_instance(
@@ -492,9 +612,11 @@ async fn spawn_and_wait_instance(
     let (startup_tx, mut startup_rx) = mpsc::unbounded_channel::<StartupSignal>();
     // Keep one sender in scope so receiver does not close early if streams end.
     let _startup_tx_guard = startup_tx.clone();
+    let validation_failed = Arc::new(AtomicBool::new(false));
 
     let instance_id_stderr = ctx.instance_id.to_string();
     let startup_tx_stderr = startup_tx.clone();
+    let validation_failed_stderr = Arc::clone(&validation_failed);
     let mut stderr_reader = BufReader::new(stderr).lines();
 
     // Log stderr in background (and detect desktop WebUI validation failure)
@@ -502,9 +624,12 @@ async fn spawn_and_wait_instance(
         let mut fallback_sent = false;
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             log_channel::emit_log(&instance_id_stderr, "error", &line);
-            if desktop_managed && !fallback_sent && is_desktop_webui_validation_failure_log(&line) {
-                let _ = startup_tx_stderr.send(StartupSignal::DesktopWebuiValidationFailed);
-                fallback_sent = true;
+            if desktop_managed && is_desktop_webui_validation_failure_log(&line) {
+                validation_failed_stderr.store(true, Ordering::Release);
+                if !fallback_sent {
+                    let _ = startup_tx_stderr.send(StartupSignal::DesktopWebuiValidationFailed);
+                    fallback_sent = true;
+                }
             }
         }
     });
@@ -531,6 +656,7 @@ async fn spawn_and_wait_instance(
     let instance_id_stdout = ctx.instance_id.to_string();
     let instance_name = ctx.instance_name.to_string();
     let app_handle_stdout = ctx.app_handle.clone();
+    let validation_failed_stdout = Arc::clone(&validation_failed);
     let mut stdout_reader = BufReader::new(stdout).lines();
 
     tokio::spawn(async move {
@@ -544,12 +670,22 @@ async fn spawn_and_wait_instance(
             {
                 let _ = app_handle_stdout.emit("default-credentials-detected", credentials);
             }
-            if desktop_managed && !fallback_sent && is_desktop_webui_validation_failure_log(&line) {
-                let _ = startup_tx.send(StartupSignal::DesktopWebuiValidationFailed);
-                fallback_sent = true;
+            if desktop_managed && is_desktop_webui_validation_failure_log(&line) {
+                validation_failed_stdout.store(true, Ordering::Release);
+                if !fallback_sent {
+                    let _ = startup_tx.send(StartupSignal::DesktopWebuiValidationFailed);
+                    fallback_sent = true;
+                }
             }
             if !startup_sent && is_startup_completion_log(&line) {
-                let _ = startup_tx.send(StartupSignal::Started);
+                if validation_failed_stdout.load(Ordering::Acquire) {
+                    if !fallback_sent {
+                        let _ = startup_tx.send(StartupSignal::DesktopWebuiValidationFailed);
+                        fallback_sent = true;
+                    }
+                } else {
+                    let _ = startup_tx.send(StartupSignal::Started);
+                }
                 startup_sent = true;
             }
         }
@@ -588,11 +724,51 @@ async fn spawn_and_wait_instance(
                         pid,
                         &executable_path,
                         &mut exit_rx,
+                        #[cfg(target_os = "windows")]
+                        job_object,
                     )
-                    .await;
+                    .await?;
                     Ok(SpawnAttemptOutcome::DesktopWebuiValidationFailed)
                 }
                 Some(StartupSignal::Started) => {
+                    if desktop_managed {
+                        match confirm_desktop_startup(
+                            &validation_failed,
+                            &mut startup_rx,
+                            shutdown_signal,
+                            &mut exit_rx,
+                        )
+                        .await
+                        {
+                            DesktopStartupConfirmation::Confirmed => {}
+                            DesktopStartupConfirmation::ValidationFailed => {
+                                terminate_failed_desktop_attempt(
+                                    ctx.instance_id,
+                                    pid,
+                                    &executable_path,
+                                    &mut exit_rx,
+                                    #[cfg(target_os = "windows")]
+                                    job_object,
+                                )
+                                .await?;
+                                return Ok(SpawnAttemptOutcome::DesktopWebuiValidationFailed);
+                            }
+                            DesktopStartupConfirmation::ShutdownRequested => {
+                                return cancel_startup_due_to_shutdown(
+                                    ctx.instance_id,
+                                    pid,
+                                    &executable_path,
+                                )
+                                .map(SpawnAttemptOutcome::Started);
+                            }
+                            DesktopStartupConfirmation::ExitedEarly(exit_result) => {
+                                let detail = format_early_exit_detail(exit_result);
+                                log::error!("Instance {} failed to start: {}", ctx.instance_id, detail);
+                                return Err(AppError::process(detail));
+                            }
+                        }
+                    }
+
                     log::info!(
                         "Instance {} started (pid: {}, port: {}, desktop_managed: {})",
                         ctx.instance_id,
@@ -614,17 +790,7 @@ async fn spawn_and_wait_instance(
             }
         }
         exit_result = &mut exit_rx => {
-            let detail = match exit_result {
-                Ok(Ok(status)) => format!(
-                    "Instance exited before startup completed (exit status: {})",
-                    status
-                ),
-                Ok(Err(wait_err)) => format!(
-                    "Instance exited before startup completed ({})",
-                    wait_err
-                ),
-                Err(_) => "Instance exited before startup completed".to_string(),
-            };
+            let detail = format_early_exit_detail(exit_result);
             log::error!("Instance {} failed to start: {}", ctx.instance_id, detail);
             Err(AppError::process(detail))
         }

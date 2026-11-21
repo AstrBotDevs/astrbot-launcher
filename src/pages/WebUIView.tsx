@@ -45,21 +45,41 @@ function buildFrameName(instanceId: string, session: WebuiSession): string {
   );
 }
 
+interface LoadedWebuiView {
+  instanceId: string;
+  session: WebuiSession;
+}
+
 export default function WebUIView() {
   const { instanceId } = useParams<{ instanceId: string }>();
   const navigate = useNavigate();
   const { token } = theme.useToken();
-  const [session, setSession] = useState<WebuiSession | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [restarting, setRestarting] = useState(false);
+  const [loadedView, setLoadedView] = useState<LoadedWebuiView | null>(null);
+  const [errorInstanceId, setErrorInstanceId] = useState<string | null>(null);
+  const [restartingIds, setRestartingIds] = useState<string[]>([]);
   const [frameKey, setFrameKey] = useState(0);
   const frameRef = useRef<ComponentRef<'iframe'> | null>(null);
-  const sessionRef = useRef<WebuiSession | null>(null);
-  const restartingRef = useRef(false);
+  const activeInstanceIdRef = useRef<string | undefined>(instanceId);
+  const displayedViewRef = useRef<LoadedWebuiView | null>(null);
+  const mountedRef = useRef(true);
+  const inFlightRestartsRef = useRef<Set<string>>(new Set());
+
+  const activeView = instanceId && loadedView?.instanceId === instanceId ? loadedView : null;
+  const activeSession = activeView?.session ?? null;
+  const loading = Boolean(instanceId) && !activeSession && errorInstanceId !== instanceId;
+  const restarting = instanceId !== undefined && restartingIds.includes(instanceId);
 
   useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    activeInstanceIdRef.current = instanceId;
+    displayedViewRef.current = activeView;
+  }, [instanceId, activeView]);
 
   useEffect(() => {
     if (!instanceId) return;
@@ -68,47 +88,69 @@ export default function WebUIView() {
       .getInstanceWebuiSession(instanceId)
       .then((s) => {
         if (cancelled) return;
-        setSession(s);
-        setLoading(false);
+        setErrorInstanceId((prev) => (prev === instanceId ? null : prev));
+        setLoadedView({ instanceId, session: s });
       })
       .catch((e: unknown) => {
         if (cancelled) return;
         handleApiError(e);
-        setLoading(false);
+        setLoadedView((prev) => (prev?.instanceId === instanceId ? null : prev));
+        setErrorInstanceId(instanceId);
       });
     return () => {
       cancelled = true;
+      setLoadedView((prev) => (prev?.instanceId === instanceId ? null : prev));
+      setErrorInstanceId((prev) => (prev === instanceId ? null : prev));
     };
   }, [instanceId]);
 
-  const restartInstance = useCallback(async (): Promise<{ ok: boolean; reason: string | null }> => {
-    if (!instanceId) return { ok: false, reason: 'missing instance id' };
-    if (restartingRef.current) return { ok: false, reason: 'restart already in progress' };
-    restartingRef.current = true;
-    setRestarting(true);
-    try {
-      await api.restartInstance(instanceId);
-      const next = await api.getInstanceWebuiSession(instanceId);
-      setSession(next);
-      // The port may change after a restart; remount the frame with a fresh session.
-      setFrameKey((k) => k + 1);
-      return { ok: true, reason: null };
-    } catch (e) {
-      handleApiError(e);
-      return { ok: false, reason: getErrorMessage(e) || 'restart failed' };
-    } finally {
-      restartingRef.current = false;
-      setRestarting(false);
-    }
-  }, [instanceId]);
+  const restartInstance = useCallback(
+    async (targetInstanceId: string): Promise<{ ok: boolean; reason: string | null }> => {
+      if (!targetInstanceId) return { ok: false, reason: 'missing instance id' };
+      if (inFlightRestartsRef.current.has(targetInstanceId)) {
+        return { ok: false, reason: 'restart already in progress' };
+      }
+      inFlightRestartsRef.current.add(targetInstanceId);
+      setRestartingIds((prev) =>
+        prev.includes(targetInstanceId) ? prev : [...prev, targetInstanceId]
+      );
+      try {
+        await api.restartInstance(targetInstanceId);
+        if (!mountedRef.current || activeInstanceIdRef.current !== targetInstanceId) {
+          return { ok: true, reason: null };
+        }
+        const next = await api.getInstanceWebuiSession(targetInstanceId);
+        if (!mountedRef.current || activeInstanceIdRef.current !== targetInstanceId) {
+          return { ok: true, reason: null };
+        }
+        setErrorInstanceId((prev) => (prev === targetInstanceId ? null : prev));
+        setLoadedView({ instanceId: targetInstanceId, session: next });
+        // The port may change after a restart; remount the frame with a fresh session.
+        setFrameKey((k) => k + 1);
+        return { ok: true, reason: null };
+      } catch (e) {
+        if (mountedRef.current && activeInstanceIdRef.current === targetInstanceId) {
+          handleApiError(e);
+        }
+        return { ok: false, reason: getErrorMessage(e) || 'restart failed' };
+      } finally {
+        inFlightRestartsRef.current.delete(targetInstanceId);
+        if (mountedRef.current) {
+          setRestartingIds((prev) => prev.filter((id) => id !== targetInstanceId));
+        }
+      }
+    },
+    []
+  );
 
   // The embedded WebUI asks the launcher to restart the instance (see webui_bridge.js).
   useEffect(() => {
     const onMessage = (event: BridgeMessageEvent) => {
       const frameWindow = frameRef.current?.contentWindow;
-      const current = sessionRef.current;
-      if (!frameWindow || !current || event.source !== frameWindow) return;
-      if (event.origin !== `http://localhost:${current.port}`) return;
+      const currentView = displayedViewRef.current;
+      if (!frameWindow || !currentView || event.source !== frameWindow) return;
+      if (currentView.instanceId !== activeInstanceIdRef.current) return;
+      if (event.origin !== `http://localhost:${currentView.session.port}`) return;
       if (!isBridgeRequest(event.data)) return;
 
       const { id, action } = event.data;
@@ -121,7 +163,7 @@ export default function WebUIView() {
       };
 
       if (action === 'restart') {
-        void restartInstance().then(respond);
+        void restartInstance(currentView.instanceId).then(respond);
       } else {
         respond({ ok: false, reason: `unsupported action: ${action}` });
       }
@@ -146,7 +188,7 @@ export default function WebUIView() {
     );
   }
 
-  if (!session || !instanceId) {
+  if (!activeView || !activeSession) {
     return (
       <div style={{ padding: 24 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')}>
@@ -162,7 +204,7 @@ export default function WebUIView() {
     );
   }
 
-  const origin = `http://localhost:${session.port}`;
+  const origin = `http://localhost:${activeSession.port}`;
 
   return (
     <div
@@ -195,9 +237,9 @@ export default function WebUIView() {
       </div>
       <iframe
         ref={frameRef}
-        key={`${session.port}-${frameKey}`}
+        key={`${activeView.instanceId}-${activeSession.port}-${frameKey}`}
         src={origin}
-        name={buildFrameName(instanceId, session)}
+        name={buildFrameName(activeView.instanceId, activeSession)}
         style={{
           flex: 1,
           minHeight: 0,

@@ -14,18 +14,21 @@
 use std::fs;
 use std::net::IpAddr;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
 const DESKTOP_SESSION_PATH: &str = "/api/v1/auth/desktop-session";
 const DESKTOP_SESSION_HEADER: &str = "X-AstrBot-Desktop-Session";
 const DESKTOP_SESSION_SECRET_MARKER: &str = "ASTRBOT_DESKTOP_SESSION_SECRET";
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+/// Upper bound across all loopback hosts and retry attempts before falling back
+/// to manual login so the WebUI does not remain stuck loading.
+const TOTAL_FETCH_TIMEOUT: Duration = Duration::from_secs(6);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 /// The core may report "started" slightly before the dashboard accepts requests.
-const CONNECT_RETRIES: u32 = 10;
-const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(500);
+const CONNECT_RETRY_DELAY: Duration = Duration::from_millis(300);
+const LOOPBACK_HOSTS: &[&str] = &["127.0.0.1", "[::1]"];
 
 /// Terminal startup log markers emitted by AstrBot core when
 /// `ASTRBOT_DESKTOP_MANAGED=1` rejects WebUI assets and leaves the dashboard
@@ -235,63 +238,132 @@ fn versions_match(a: &str, b: &str) -> bool {
     !norm_a.is_empty() && norm_a.eq_ignore_ascii_case(norm_b)
 }
 
+fn is_transient_session_status(status: StatusCode) -> bool {
+    status.is_server_error() || status == StatusCode::REQUEST_TIMEOUT
+}
+
 /// Exchange the per-launch secret for a dashboard session.
 ///
 /// Returns `None` (so callers fall back to the normal login page) when the
-/// core is too old to expose the endpoint or the request fails.
+/// core is too old to expose the endpoint, rejects the request, or does not
+/// respond within `TOTAL_FETCH_TIMEOUT`.
 pub async fn fetch_desktop_session(port: u16, secret: &str) -> Option<(String, String)> {
-    let client = Client::builder()
-        .no_proxy()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .ok()?;
+    fetch_desktop_session_with_config(
+        port,
+        secret,
+        LOOPBACK_HOSTS,
+        TOTAL_FETCH_TIMEOUT,
+        REQUEST_TIMEOUT,
+        CONNECT_RETRY_DELAY,
+    )
+    .await
+}
 
-    for attempt in 0..CONNECT_RETRIES {
-        for host in ["127.0.0.1", "[::1]"] {
+async fn fetch_desktop_session_with_config(
+    port: u16,
+    secret: &str,
+    hosts: &[&str],
+    total_timeout: Duration,
+    request_timeout: Duration,
+    retry_delay: Duration,
+) -> Option<(String, String)> {
+    let client = Client::builder().no_proxy().build().ok()?;
+    let deadline = Instant::now() + total_timeout;
+
+    loop {
+        let mut saw_transient_error = false;
+
+        for host in hosts {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                log::warn!(
+                    "Timed out after {:?} exchanging desktop session on port {port}; falling back to manual login",
+                    total_timeout
+                );
+                return None;
+            }
+
+            let attempt_timeout = remaining.min(request_timeout);
             let url = format!("http://{host}:{port}{DESKTOP_SESSION_PATH}");
             let response = match client
                 .post(&url)
                 .header(DESKTOP_SESSION_HEADER, secret)
                 .json(&serde_json::json!({}))
+                .timeout(attempt_timeout)
                 .send()
                 .await
             {
                 Ok(response) => response,
                 Err(error) => {
                     log::debug!("Desktop session request to {url} failed: {error}");
+                    saw_transient_error = true;
                     continue;
                 }
             };
 
-            if !response.status().is_success() {
-                log::info!(
-                    "Desktop session unavailable on port {port} (HTTP {}); falling back to manual login",
-                    response.status()
-                );
-                return None;
+            let status = response.status();
+            if status.is_success() {
+                let body_remaining = deadline.saturating_duration_since(Instant::now());
+                if body_remaining.is_zero() {
+                    log::warn!(
+                        "Timed out reading desktop session response on port {port}; falling back to manual login"
+                    );
+                    return None;
+                }
+
+                let Ok(Ok(envelope)) =
+                    tokio::time::timeout(body_remaining, response.json::<SessionEnvelope>()).await
+                else {
+                    saw_transient_error = true;
+                    continue;
+                };
+                let data = envelope.data?;
+                return match (data.token, data.username) {
+                    (Some(token), Some(username)) if !token.is_empty() => Some((token, username)),
+                    _ => None,
+                };
             }
 
-            let envelope = response.json::<SessionEnvelope>().await.ok()?;
-            let data = envelope.data?;
-            return match (data.token, data.username) {
-                (Some(token), Some(username)) if !token.is_empty() => Some((token, username)),
-                _ => None,
-            };
+            if is_transient_session_status(status) {
+                log::debug!(
+                    "Transient HTTP {status} from {url} while creating desktop session; will retry"
+                );
+                saw_transient_error = true;
+                continue;
+            }
+
+            log::info!(
+                "Desktop session unavailable on port {port} (HTTP {status}); falling back to manual login"
+            );
+            return None;
         }
 
-        if attempt + 1 < CONNECT_RETRIES {
-            tokio::time::sleep(CONNECT_RETRY_DELAY).await;
+        if !saw_transient_error {
+            return None;
         }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            log::warn!(
+                "Could not reach AstrBot dashboard on port {port} within {:?} to create a desktop session",
+                total_timeout
+            );
+            return None;
+        }
+
+        tokio::time::sleep(retry_delay.min(remaining)).await;
     }
-
-    log::warn!("Could not reach AstrBot dashboard on port {port} to create a desktop session");
-    None
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc};
+    use std::thread;
 
     fn make_temp_core(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -407,5 +479,131 @@ mod tests {
         assert!(!is_desktop_webui_validation_failure_log(
             "[INFO] AstrBot started."
         ));
+    }
+
+    fn drain_http_request(stream: &mut std::net::TcpStream) {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+        let mut buf = [0u8; 4096];
+        let _ = stream.read(&mut buf);
+    }
+
+    #[tokio::test]
+    async fn retries_transient_server_errors_and_succeeds() -> std::io::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_bg = Arc::clone(&hits);
+
+        let server = thread::spawn(move || {
+            for attempt in 0..2 {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    break;
+                };
+                hits_bg.fetch_add(1, Ordering::SeqCst);
+                drain_http_request(&mut stream);
+                if attempt == 0 {
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
+                } else {
+                    let body = r#"{"status":"ok","data":{"token":"tok-123","username":"astrbot"}}"#;
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                }
+            }
+        });
+
+        let result = fetch_desktop_session_with_config(
+            port,
+            "secret-value",
+            &["127.0.0.1"],
+            Duration::from_secs(2),
+            Duration::from_millis(500),
+            Duration::from_millis(20),
+        )
+        .await;
+
+        let _ = server.join();
+        assert_eq!(result, Some(("tok-123".to_string(), "astrbot".to_string())));
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn fails_fast_on_non_transient_client_errors() -> std::io::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_bg = Arc::clone(&hits);
+
+        let server = thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                hits_bg.fetch_add(1, Ordering::SeqCst);
+                drain_http_request(&mut stream);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+
+        let result = fetch_desktop_session_with_config(
+            port,
+            "secret-value",
+            &["127.0.0.1"],
+            Duration::from_secs(2),
+            Duration::from_millis(500),
+            Duration::from_millis(20),
+        )
+        .await;
+
+        let _ = server.join();
+        assert_eq!(result, None);
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounds_total_fetch_time_when_server_stalls() -> std::io::Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        listener.set_nonblocking(true)?;
+        let (stop_tx, stop_rx) = mpsc::channel::<()>();
+
+        let server = thread::spawn(move || {
+            let mut held_streams = Vec::new();
+            while stop_rx.try_recv().is_err() {
+                match listener.accept() {
+                    Ok((stream, _)) => held_streams.push(stream),
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+            }
+            held_streams.len()
+        });
+
+        let started = Instant::now();
+        let result = fetch_desktop_session_with_config(
+            port,
+            "secret-value",
+            &["127.0.0.1"],
+            Duration::from_millis(350),
+            Duration::from_millis(150),
+            Duration::from_millis(30),
+        )
+        .await;
+        let elapsed = started.elapsed();
+
+        let _ = stop_tx.send(());
+        let accepted = server.join().unwrap_or(0);
+        assert_eq!(result, None);
+        assert!(accepted >= 1);
+        assert!(elapsed < Duration::from_secs(2));
+        Ok(())
     }
 }
