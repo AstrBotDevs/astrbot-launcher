@@ -10,8 +10,9 @@ use crate::config::{load_config, AppConfig};
 use crate::error::{AppError, Result};
 use crate::github::fetch_python_releases;
 use crate::network_config;
-use crate::platform::{find_python_asset_for_version, get_python310_asset};
-use crate::utils::index_url::wrap_with_proxy;
+use crate::platform::{
+    find_python_asset_for_version, get_python310_asset, get_python310_mainland_asset,
+};
 use crate::utils::net::{ensure_success_status, send_get};
 use crate::utils::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
 
@@ -304,13 +305,10 @@ async fn find_mainland_python_asset(
     major_version: &str,
 ) -> Result<(String, String)> {
     // The latest-only mirror no longer carries Python 3.10. Download its final
-    // build through the existing mainland GitHub acceleration service instead.
+    // build from NJU's per-tag mirror instead of tunneling through gh-proxy,
+    // which is too slow to finish before the download timeout.
     if major_version == "3.10" {
-        let (url, version) = get_python310_asset().map_err(AppError::python)?;
-        return Ok((
-            wrap_with_proxy(network_config::MAINLAND_ASTRBOT_DOWNLOAD_PROXY, &url),
-            version,
-        ));
+        return get_python310_mainland_asset().map_err(AppError::python);
     }
 
     let asset_names = fetch_mainland_python_asset_names(client).await?;

@@ -116,6 +116,7 @@ Access is denied
 - Node.js 下载镜像：<https://mirrors.cernet.edu.cn/nodejs-release/>
 - PyPI 镜像源：<https://mirrors.cernet.edu.cn/pypi/web/simple>
 - `astral-sh/python-build-standalone` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/>
+- `astral-sh/python-build-standalone` 历史版本镜像（Python 3.10 最终构建）：<https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone/20261009/>
 - `astral-sh/uv` 发布镜像：<https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/>
 - AstrBot Release 下载加速代理： <https://gh-proxy.com>
 
