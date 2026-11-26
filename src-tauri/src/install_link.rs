@@ -12,7 +12,7 @@ pub(crate) struct InstallTarget {
 
 fn parse_target(value: &str) -> Option<InstallTarget> {
     let url = Url::parse(value).ok()?;
-    if url.scheme() != "astrbot"
+    if url.scheme() != "astrbot-launcher"
         || url.host_str() != Some("extension")
         || url.path() != "/plugins"
         || !url.username().is_empty()
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn preserves_the_market_identity_and_optional_registry() {
-        let target = parse_target("astrbot://extension/plugins?market_plugin_id=author%2Fname&registry_url=https%3A%2F%2Fmarket.example%2Fplugins.json");
+        let target = parse_target("astrbot-launcher://extension/plugins?market_plugin_id=author%2Fname&registry_url=https%3A%2F%2Fmarket.example%2Fplugins.json");
         assert!(target.is_some());
         let Some(target) = target else {
             return;
@@ -116,19 +116,22 @@ mod tests {
             target.registry_url.as_deref(),
             Some("https://market.example/plugins.json")
         );
-        assert!(parse_target("astrbot://extension/plugins?market_plugin_id=a%2Fb").is_some());
+        assert!(
+            parse_target("astrbot-launcher://extension/plugins?market_plugin_id=a%2Fb").is_some()
+        );
     }
 
     #[test]
     fn rejects_unsafe_or_ambiguous_install_requests() {
         for value in [
             "https://extension/plugins?market_plugin_id=a%2Fb",
-            "astrbot://extension/other?market_plugin_id=a%2Fb",
-            "astrbot://user@extension/plugins?market_plugin_id=a%2Fb",
-            "astrbot://extension/plugins?market_plugin_id=a%2Fb&market_plugin_id=c%2Fd",
-            "astrbot://extension/plugins?market_plugin_id=a%2Fb&registry_url=http://example.com/plugins.json",
-            "astrbot://extension/plugins?market_plugin_id=invalid",
-            "astrbot://extension/plugins?market_plugin_id=a%2Fb&url=https://example.com",
+            "astrbot://extension/plugins?market_plugin_id=a%2Fb",
+            "astrbot-launcher://extension/other?market_plugin_id=a%2Fb",
+            "astrbot-launcher://user@extension/plugins?market_plugin_id=a%2Fb",
+            "astrbot-launcher://extension/plugins?market_plugin_id=a%2Fb&market_plugin_id=c%2Fd",
+            "astrbot-launcher://extension/plugins?market_plugin_id=a%2Fb&registry_url=http://example.com/plugins.json",
+            "astrbot-launcher://extension/plugins?market_plugin_id=invalid",
+            "astrbot-launcher://extension/plugins?market_plugin_id=a%2Fb&url=https://example.com",
         ] { assert!(parse_target(value).is_none()); }
     }
 }

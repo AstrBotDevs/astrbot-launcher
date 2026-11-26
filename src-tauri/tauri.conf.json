@@ -41,7 +41,7 @@
     }
   },
   "plugins": {
-    "deep-link": { "desktop": { "schemes": ["astrbot"] } },
+    "deep-link": { "desktop": { "schemes": ["astrbot-launcher"] } },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVDNEQxQzQ5NUJBRjE4Q0YKUldUUEdLOWJTUnhOWEZ3K2hIVzMvY00xeEowQ1dzdjYwbkp0Nm9obkQ1S00rQVZlampSbm1rc3UK",
       "endpoints": [
