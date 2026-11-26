@@ -6,12 +6,15 @@ mod registry;
 mod types;
 mod uv;
 
+use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
 use std::path::Path;
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use reqwest::Client;
 use tauri::AppHandle;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 use crate::error::{AppError, Result};
 use crate::utils::paths::{get_component_dir, get_node_exe_path, get_nodejs_shim_dir};
@@ -23,6 +26,26 @@ pub use types::{ComponentId, ComponentsSnapshot};
 pub use uv::{clear_uv_cache, is_uv_installed, uv_sync};
 
 use types::ComponentStatus;
+
+/// Serializes install/reinstall/uninstall commands per component, so
+/// overlapping commands cannot race on the same runtime directories and
+/// archive files.
+static COMPONENT_CMD_LOCKS: OnceLock<StdMutex<HashMap<ComponentId, Arc<AsyncMutex<()>>>>> =
+    OnceLock::new();
+
+fn component_locks() -> &'static StdMutex<HashMap<ComponentId, Arc<AsyncMutex<()>>>> {
+    COMPONENT_CMD_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+async fn acquire_component_lock(id: ComponentId) -> OwnedMutexGuard<()> {
+    let mutex = {
+        let mut locks = component_locks()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        Arc::clone(locks.entry(id).or_default())
+    };
+    mutex.lock_owned().await
+}
 
 /// Build a snapshot of all component statuses.
 pub fn build_components_snapshot() -> ComponentsSnapshot {
@@ -48,6 +71,7 @@ pub async fn install_component(
     id: ComponentId,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
+    let _guard = acquire_component_lock(id).await;
     log::info!("Installing component {:?}", id);
     let result = match id {
         ComponentId::Python => python::install_component(client, app_handle).await,
@@ -64,7 +88,8 @@ pub async fn install_component(
 }
 
 /// Uninstall a component by id, dispatching to the appropriate sub-module.
-pub fn uninstall_component(id: ComponentId) -> Result<String> {
+pub async fn uninstall_component(id: ComponentId) -> Result<String> {
+    let _guard = acquire_component_lock(id).await;
     log::info!("Uninstalling component {:?}", id);
     let result = match id {
         ComponentId::Python => python::uninstall_component(),
@@ -86,6 +111,7 @@ pub async fn reinstall_component(
     id: ComponentId,
     app_handle: Option<&AppHandle>,
 ) -> Result<String> {
+    let _guard = acquire_component_lock(id).await;
     match id {
         ComponentId::Python => python::reinstall_component(client, app_handle).await,
         ComponentId::Nodejs => nodejs::reinstall_nodejs(client, app_handle).await,

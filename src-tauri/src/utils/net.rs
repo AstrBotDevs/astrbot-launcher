@@ -14,7 +14,11 @@ pub(crate) const USER_AGENT: &str = concat!(
 );
 
 pub(crate) fn build_http_client_with_proxy(proxy: Option<ProxySettings>) -> Result<Client> {
-    let mut builder = Client::builder().timeout(Duration::from_secs(30));
+    let mut builder = Client::builder()
+        .timeout(Duration::from_secs(30))
+        // Aborts connections that stop delivering bytes without capping the
+        // total transfer time of slow-but-flowing downloads.
+        .read_timeout(Duration::from_secs(60));
 
     let Some(proxy) = proxy else {
         return builder
@@ -88,11 +92,13 @@ fn build_reqwest_proxy(
     Ok(Some(reqwest_proxy))
 }
 
-/// Total timeout for large file downloads (runtime archives, release zips).
-/// Deliberately much longer than the shared client's 30s: on slow mainland
-/// links tens of megabytes can take minutes, and the progress stream already
-/// proves the transfer is alive.
-pub(crate) const DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Backstop total timeout for large file downloads (runtime archives,
+/// release zips). Download liveness is governed by the shared client's read
+/// timeout (60s of transfer inactivity, resetting on every chunk), so this
+/// does not cap well-progressing transfers; it only guards against an
+/// infinitely trickling stream. 10 minutes still fits a 22 MB archive at
+/// ~37 KB/s.
+pub(crate) const DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Send a GET request for a large file download, overriding the shared
 /// client's short default timeout.

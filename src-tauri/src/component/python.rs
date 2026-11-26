@@ -11,7 +11,7 @@ use crate::error::{AppError, Result};
 use crate::github::fetch_python_releases;
 use crate::network_config;
 use crate::platform::{
-    find_python_asset_for_version, get_python310_asset, get_python310_asset_name, PYTHON310_VERSION,
+    find_python_asset_for_version, get_python310_asset, get_python310_mainland_asset,
 };
 use crate::utils::net::{ensure_success_status, send_get};
 use crate::utils::paths::{get_python_exe_path, get_python_runtime_dir, get_venv_python};
@@ -308,15 +308,7 @@ async fn find_mainland_python_asset(
     // build from NJU's per-tag mirror instead of tunneling through gh-proxy,
     // which is too slow to finish before the download timeout.
     if major_version == "3.10" {
-        let file_name = get_python310_asset_name().map_err(AppError::python)?;
-        return Ok((
-            format!(
-                "{}{}",
-                network_config::MAINLAND_PYTHON310_RELEASE_BASE,
-                file_name
-            ),
-            PYTHON310_VERSION.to_string(),
-        ));
+        return get_python310_mainland_asset().map_err(AppError::python);
     }
 
     let asset_names = fetch_mainland_python_asset_names(client).await?;

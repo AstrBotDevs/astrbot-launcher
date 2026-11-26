@@ -20,6 +20,10 @@ pub fn get_python_arch_target() -> Result<&'static str, String> {
 pub const PYTHON310_VERSION: &str = "3.10.22";
 const PYTHON310_RELEASE: &str = "20261009";
 
+/// Per-tag mainland mirror of python-build-standalone releases (NJU).
+const PYTHON310_MIRROR_ROOT: &str =
+    "https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone/";
+
 /// File name of the final Python 3.10 build for the current platform, shared
 /// by the GitHub URL and the mainland mirror URL.
 pub fn get_python310_asset_name() -> Result<String, String> {
@@ -34,6 +38,15 @@ pub fn get_python310_asset() -> Result<(String, String), String> {
     let url = format!(
         "https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON310_RELEASE}/{file_name}"
     );
+    Ok((url, PYTHON310_VERSION.to_string()))
+}
+
+/// Full download URL of the final Python 3.10 build on the mainland mirror.
+/// The release directory and the asset file name are derived from the same
+/// `PYTHON310_RELEASE` constant so they can never drift apart.
+pub fn get_python310_mainland_asset() -> Result<(String, String), String> {
+    let file_name = get_python310_asset_name()?;
+    let url = format!("{PYTHON310_MIRROR_ROOT}{PYTHON310_RELEASE}/{file_name}");
     Ok((url, PYTHON310_VERSION.to_string()))
 }
 
@@ -98,5 +111,31 @@ pub fn get_uv_archive_name() -> Result<&'static str, String> {
         ("macos", "x86_64") => Ok("uv-x86_64-apple-darwin.tar.gz"),
         ("macos", "aarch64") => Ok("uv-aarch64-apple-darwin.tar.gz"),
         _ => Err(format!("Unsupported platform for uv: {OS} {ARCH}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        get_python310_asset, get_python310_asset_name, get_python310_mainland_asset,
+        PYTHON310_RELEASE, PYTHON310_VERSION,
+    };
+
+    #[test]
+    fn python310_urls_stay_in_sync_with_asset_name() {
+        let (Ok((mirror_url, mirror_version)), Ok((github_url, github_version)), Ok(file_name)) = (
+            get_python310_mainland_asset(),
+            get_python310_asset(),
+            get_python310_asset_name(),
+        ) else {
+            return;
+        };
+
+        assert_eq!(mirror_version, PYTHON310_VERSION);
+        assert_eq!(github_version, PYTHON310_VERSION);
+        assert!(mirror_url.ends_with(&format!("/{PYTHON310_RELEASE}/{file_name}")));
+        assert!(github_url.ends_with(&format!(
+            "/releases/download/{PYTHON310_RELEASE}/{file_name}"
+        )));
     }
 }

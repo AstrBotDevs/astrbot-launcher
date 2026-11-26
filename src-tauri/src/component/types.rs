@@ -1,7 +1,7 @@
 use serde::Serialize;
 
 /// Identifies a managed component.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ComponentId {
     Python,
     Nodejs,

@@ -393,11 +393,7 @@ async fn run_component_command(
         ComponentCommandAction::Reinstall => {
             component::reinstall_component(&client, id, Some(app_handle)).await
         }
-        ComponentCommandAction::Uninstall => {
-            tokio::task::spawn_blocking(move || component::uninstall_component(id))
-                .await
-                .map_err(|e| AppError::process(format!("Uninstall task panicked: {}", e)))?
-        }
+        ComponentCommandAction::Uninstall => component::uninstall_component(id).await,
     }
 }
 
