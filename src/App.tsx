@@ -23,6 +23,7 @@ import {
 } from '@ant-design/icons';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { TitleBar } from './components/TitleBar';
+import { PluginInstallRequest } from './components/PluginInstallRequest';
 import { AntdStaticProvider, message } from './antdStatic';
 import { useAppStore, useUpdateStore, initEventListeners, cleanupEventListeners } from './stores';
 import { useResolvedTheme } from './hooks';
@@ -267,6 +268,7 @@ function App({ isMacOS }: { isMacOS: boolean }) {
           {!isMacOS && <TitleBar />}
           <div style={{ flex: 1, height: 0, minHeight: 0, overflow: 'hidden' }}>
             <BrowserRouter>
+              <PluginInstallRequest />
               <DefaultCredentialsListener />
               <Suspense>
                 <Routes>

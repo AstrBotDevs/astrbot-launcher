@@ -6,6 +6,7 @@ mod config;
 mod download;
 mod error;
 mod github;
+mod install_link;
 mod instance;
 #[cfg(target_os = "macos")]
 mod macos_window;
@@ -154,11 +155,12 @@ pub fn run() {
     );
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_or_recreate_main_window(app);
         }))
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .arg("--autostart")
@@ -197,6 +199,7 @@ pub fn run() {
                 process_manager: ProcessManager::new(),
             }
         })
+        .manage(install_link::InstallLinkState::default())
         .setup(|app| setup::on_setup(app))
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
@@ -217,6 +220,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            install_link::take_plugin_install_request,
             commands::get_app_snapshot,
             commands::rebuild_app_snapshot,
             // Config

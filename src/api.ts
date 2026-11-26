@@ -13,6 +13,10 @@ type LockCheckRequest =
     };
 
 export const api = {
+  takePluginInstallRequest: () =>
+    invoke<{ market_plugin_id: string; registry_url: string | null } | null>(
+      'take_plugin_install_request'
+    ),
   // ========================================
   // Snapshot
   // ========================================
