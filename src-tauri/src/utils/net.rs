@@ -88,6 +88,26 @@ fn build_reqwest_proxy(
     Ok(Some(reqwest_proxy))
 }
 
+/// Total timeout for large file downloads (runtime archives, release zips).
+/// Deliberately much longer than the shared client's 30s: on slow mainland
+/// links tens of megabytes can take minutes, and the progress stream already
+/// proves the transfer is alive.
+pub(crate) const DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Send a GET request for a large file download, overriding the shared
+/// client's short default timeout.
+pub(crate) async fn send_get_download(
+    client: &Client,
+    url: &str,
+) -> std::result::Result<reqwest::Response, reqwest::Error> {
+    client
+        .get(url)
+        .header("User-Agent", USER_AGENT)
+        .timeout(DOWNLOAD_TOTAL_TIMEOUT)
+        .send()
+        .await
+}
+
 pub(crate) async fn send_get(
     client: &Client,
     url: &str,

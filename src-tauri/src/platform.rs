@@ -17,14 +17,24 @@ pub fn get_python_arch_target() -> Result<&'static str, String> {
 
 /// Python 3.10 was removed from python-build-standalone starting with 20261013.
 /// Use its final build instead of looking in a moving latest-release window.
-pub fn get_python310_asset() -> Result<(String, String), String> {
+pub const PYTHON310_VERSION: &str = "3.10.22";
+const PYTHON310_RELEASE: &str = "20261009";
+
+/// File name of the final Python 3.10 build for the current platform, shared
+/// by the GitHub URL and the mainland mirror URL.
+pub fn get_python310_asset_name() -> Result<String, String> {
     let arch_target = get_python_arch_target()?;
-    let version = "3.10.22";
-    let release = "20261009";
+    Ok(format!(
+        "cpython-{PYTHON310_VERSION}%2B{PYTHON310_RELEASE}-{arch_target}-install_only_stripped.tar.gz"
+    ))
+}
+
+pub fn get_python310_asset() -> Result<(String, String), String> {
+    let file_name = get_python310_asset_name()?;
     let url = format!(
-        "https://github.com/astral-sh/python-build-standalone/releases/download/{release}/cpython-{version}%2B{release}-{arch_target}-install_only_stripped.tar.gz"
+        "https://github.com/astral-sh/python-build-standalone/releases/download/{PYTHON310_RELEASE}/{file_name}"
     );
-    Ok((url, version.to_string()))
+    Ok((url, PYTHON310_VERSION.to_string()))
 }
 
 /// Find a Python asset matching the given major version (e.g., "3.12" or "3.10").

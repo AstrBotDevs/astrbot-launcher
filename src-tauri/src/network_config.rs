@@ -14,6 +14,10 @@ pub(crate) const MAINLAND_NODEJS_MIRROR: &str = "https://mirrors.cernet.edu.cn/n
 pub(crate) const MAINLAND_PYPI_MIRROR: &str = "https://mirrors.cernet.edu.cn/pypi/web/simple";
 pub(crate) const MAINLAND_PYTHON_BUILD_STANDALONE_BASE: &str =
     "https://mirrors.ustc.edu.cn/github-release/astral-sh/python-build-standalone/LatestRelease/";
+/// USTC's latest-only mirror dropped Python 3.10; NJU still mirrors the final
+/// python-build-standalone tag that ships it.
+pub(crate) const MAINLAND_PYTHON310_RELEASE_BASE: &str =
+    "https://mirror.nju.edu.cn/github-release/astral-sh/python-build-standalone/20261009/";
 pub(crate) const MAINLAND_UV_RELEASE_BASE: &str =
     "https://mirrors.ustc.edu.cn/github-release/astral-sh/uv/LatestRelease/";
 pub(crate) const MAINLAND_ASTRBOT_DOWNLOAD_PROXY: &str = "https://gh-proxy.org/";

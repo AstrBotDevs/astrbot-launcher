@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter as _};
 use crate::config::{with_manifest_mut, InstalledVersion};
 use crate::error::{AppError, Result};
 use crate::github::{get_source_archive_urls, GitHubRelease};
-use crate::utils::net::{ensure_success_status, send_get};
+use crate::utils::net::{ensure_success_status, send_get_download};
 use crate::utils::paths::get_versions_dir;
 use crate::validation::resolve_version_zip_path;
 
@@ -124,7 +124,7 @@ async fn download_file_inner(
     dest: &Path,
     opts: Option<&DownloadOptions<'_>>,
 ) -> Result<()> {
-    let resp = send_get(client, url, false)
+    let resp = send_get_download(client, url)
         .await
         .map_err(|e| AppError::network(e.to_string()))?;
     ensure_success_status(&resp, AppError::network)?;
