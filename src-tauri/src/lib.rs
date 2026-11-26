@@ -18,6 +18,7 @@ mod setup;
 mod tray;
 mod utils;
 mod validation;
+mod webui_bridge;
 
 use std::sync::RwLock;
 use std::time::Duration;
@@ -178,6 +179,7 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(webui_bridge::init())
         .plugin(tauri_plugin_dialog::init())
         .manage({
             let startup_client = (|| {
@@ -271,6 +273,7 @@ pub fn run() {
             commands::stop_instance,
             commands::restart_instance,
             commands::get_instance_port,
+            commands::get_instance_webui_session,
             // Backup
             commands::create_backup,
             commands::restore_backup,

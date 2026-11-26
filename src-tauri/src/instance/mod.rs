@@ -12,9 +12,11 @@ mod deploy;
 pub(crate) mod lifecycle;
 mod rebuild;
 mod types;
+mod webui_session;
 
 // Re-export types
 pub use types::InstanceStatus;
+pub use webui_session::{fetch_desktop_session, WebuiSession};
 
 // Re-export CRUD operations
 pub use crud::{create_instance, delete_instance, list_instances, update_instance};

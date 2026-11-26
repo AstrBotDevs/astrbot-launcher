@@ -70,6 +70,9 @@ pub struct InstanceProcess {
     pub executable_path: PathBuf,
     pub port: u16,
     pub dashboard_enabled: bool,
+    /// Per-launch secret handed to the instance through
+    /// `ASTRBOT_DESKTOP_SESSION_SECRET`; `None` when launched in standard fallback mode.
+    pub desktop_session_secret: Option<String>,
     /// Keeps the Windows job handle alive while the instance is tracked. When
     /// the slot is removed, dropping this handle lets KILL_ON_JOB_CLOSE clean up
     /// any remaining processes in the job.
@@ -105,6 +108,7 @@ impl InstanceProcess {
         executable_path: PathBuf,
         port: u16,
         dashboard_enabled: bool,
+        desktop_session_secret: Option<String>,
         #[cfg(target_os = "windows")] job_object: JobObject,
     ) -> Self {
         Self {
@@ -112,6 +116,7 @@ impl InstanceProcess {
             executable_path,
             port,
             dashboard_enabled,
+            desktop_session_secret,
             #[cfg(target_os = "windows")]
             _job_object: job_object,
             alive_failure_count: 0,

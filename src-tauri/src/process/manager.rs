@@ -202,6 +202,18 @@ impl ProcessManager {
         }
     }
 
+    /// Returns `(port, desktop_session_secret)` for a **live** instance.
+    pub fn get_port_and_session_secret(&self, id: &str) -> Option<(u16, Option<String>)> {
+        let state = lock_mutex_recover(&self.state, "ProcessState");
+        match state.slots.get(id) {
+            Some(InstanceEntry {
+                slot: Some(Slot::Live(p)),
+                ..
+            }) => Some((p.port, p.desktop_session_secret.clone())),
+            _ => None,
+        }
+    }
+
     pub fn get_runtime_info(&self) -> HashMap<String, InstanceRuntimeInfo> {
         let state = lock_mutex_recover(&self.state, "ProcessState");
         state
@@ -416,6 +428,7 @@ impl ProcessManager {
                         launch.executable_path,
                         launch.port,
                         launch.dashboard_enabled,
+                        launch.desktop_session_secret,
                         #[cfg(target_os = "windows")]
                         launch.job_object,
                     )));
