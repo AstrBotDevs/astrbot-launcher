@@ -7,6 +7,10 @@ import { handleApiError } from '../utils';
 
 export default function WebUIView() {
   const { instanceId } = useParams<{ instanceId: string }>();
+  return <InstanceWebUIView key={instanceId} instanceId={instanceId} />;
+}
+
+function InstanceWebUIView({ instanceId }: { instanceId: string | undefined }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { token } = theme.useToken();
@@ -15,16 +19,22 @@ export default function WebUIView() {
 
   useEffect(() => {
     if (!instanceId) return;
+    let disposed = false;
     api
       .getInstancePort(instanceId)
       .then((p) => {
+        if (disposed) return;
         setPort(p);
         setLoading(false);
       })
       .catch((e: unknown) => {
+        if (disposed) return;
         handleApiError(e);
         setLoading(false);
       });
+    return () => {
+      disposed = true;
+    };
   }, [instanceId]);
 
   if (loading) {

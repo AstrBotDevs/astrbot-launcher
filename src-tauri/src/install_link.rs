@@ -72,21 +72,26 @@ pub(crate) fn take_plugin_install_request(
     lock_mutex_recover(&state.0, "PluginInstallRequest").take()
 }
 
-pub(crate) fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) fn setup(app: &tauri::App) {
     #[cfg(target_os = "linux")]
-    app.deep_link().register_all()?;
+    if let Err(error) = app.deep_link().register_all() {
+        log::warn!("Could not register plugin installation links: {error}");
+    }
     let handle = app.handle().clone();
     app.deep_link().on_open_url(move |event| {
         for url in event.urls() {
             receive(&handle, url.as_str());
         }
     });
-    if let Some(urls) = app.deep_link().get_current()? {
-        for url in urls {
-            receive(app.handle(), url.as_str());
+    match app.deep_link().get_current() {
+        Ok(Some(urls)) => {
+            for url in urls {
+                receive(app.handle(), url.as_str());
+            }
         }
+        Ok(None) => {}
+        Err(error) => log::warn!("Could not read the initial plugin installation link: {error}"),
     }
-    Ok(())
 }
 
 fn receive(app: &AppHandle, value: &str) {
