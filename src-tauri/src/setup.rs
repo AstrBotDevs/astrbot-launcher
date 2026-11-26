@@ -9,6 +9,7 @@ use crate::tray;
 use crate::utils::log_bus as log_channel;
 
 pub fn on_setup(app: &tauri::App) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    crate::install_link::setup(app);
     #[cfg(target_os = "macos")]
     crate::macos_window::setup();
 

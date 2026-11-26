@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Spin, Typography, theme } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { api } from '../api';
@@ -7,23 +7,34 @@ import { handleApiError } from '../utils';
 
 export default function WebUIView() {
   const { instanceId } = useParams<{ instanceId: string }>();
+  return <InstanceWebUIView key={instanceId} instanceId={instanceId} />;
+}
+
+function InstanceWebUIView({ instanceId }: { instanceId: string | undefined }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { token } = theme.useToken();
   const [port, setPort] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!instanceId) return;
+    let disposed = false;
     api
       .getInstancePort(instanceId)
       .then((p) => {
+        if (disposed) return;
         setPort(p);
         setLoading(false);
       })
       .catch((e: unknown) => {
+        if (disposed) return;
         handleApiError(e);
         setLoading(false);
       });
+    return () => {
+      disposed = true;
+    };
   }, [instanceId]);
 
   if (loading) {
@@ -57,6 +68,15 @@ export default function WebUIView() {
     );
   }
 
+  const installParams = new window.URLSearchParams();
+  const pluginId = searchParams.get('market_plugin_id');
+  if (pluginId) {
+    installParams.set('market_plugin_id', pluginId);
+    const registry = searchParams.get('registry_url');
+    if (registry) installParams.set('registry_url', registry);
+  }
+  const installHash = pluginId ? `/#/extension/plugins?${installParams}` : '';
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div
@@ -79,7 +99,7 @@ export default function WebUIView() {
         </Typography.Text>
       </div>
       <iframe
-        src={`http://localhost:${port}`}
+        src={`http://localhost:${port}${installHash}`}
         style={{
           flex: 1,
           minHeight: 0,
